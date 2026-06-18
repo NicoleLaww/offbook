@@ -272,21 +272,15 @@ async function doPDF(file){
   document.getElementById('fname').textContent=file.name;
 
   try{
-    // Step 1: Extract raw text using PDF.js
-    const rawText = await extractPDFText(file);
-    if(!rawText||rawText.trim().length<50){
-      document.getElementById('uperr').textContent='Could not read text from PDF — make sure it has selectable text (not a scanned image).';
-      document.getElementById('upst').textContent='';
-      return;
-    }
-
-    // Step 2: Send raw text to GPT-4o to structure it.
-    // Chunk long scripts so every page is parsed (no truncation).
-    const chunks = chunkText(rawText);
+    // Read each page in order: selectable text where the page has a text
+    // layer, GPT-4o vision (OCR) for scanned/image pages that have none.
+    document.getElementById('upst').innerHTML='<span class="spin"></span>Reading PDF...';
+    const pages = await extractPDFPages(file);
     let lines = [];
-    for(let ci=0;ci<chunks.length;ci++){
-      document.getElementById('upst').innerHTML=`<span class="spin"></span>Parsing dialogue with GPT-4o...${chunks.length>1?` (${ci+1}/${chunks.length})`:''}`;
-      const part = await parseWithGPT(chunks[ci]);
+    for(const p of pages){
+      const hasText = p.text.trim().length >= 40;
+      document.getElementById('upst').innerHTML=`<span class="spin"></span>Reading page ${p.num}/${pages.length}${hasText?'':' (scanned — using vision)'}...`;
+      const part = hasText ? await parseWithGPT(p.text) : await parseImageWithGPT(await pageToImage(p.page));
       if(part&&part.length)lines=lines.concat(part);
     }
     if(!lines||!lines.length){
@@ -317,7 +311,7 @@ async function doPDF(file){
   }
 }
 
-async function extractPDFText(file){
+async function extractPDFPages(file){
   // Wait for pdfjs to be ready
   if(!window.pdfjsReady){
     await new Promise(res=>window.addEventListener('pdfjsready',res,{once:true}));
@@ -325,7 +319,7 @@ async function extractPDFText(file){
   const pdfjs=window.pdfjs;
   const buf=await file.arrayBuffer();
   const pdf=await pdfjs.getDocument({data:buf}).promise;
-  let text='';
+  const pages=[];
   for(let i=1;i<=pdf.numPages;i++){
     const page=await pdf.getPage(i);
     const content=await page.getTextContent();
@@ -337,29 +331,64 @@ async function extractPDFText(file){
       rows[y].push({x:item.transform[4],s:item.str});
     }
     const ys=Object.keys(rows).map(Number).sort((a,b)=>b-a);
+    let text='';
     for(const y of ys){
-      const row=rows[y].sort((a,b)=>a.x-b.x).map(i=>i.s).join(' ').trim();
+      const row=rows[y].sort((a,b)=>a.x-b.x).map(it=>it.s).join(' ').trim();
       if(row)text+=row+'\n';
     }
-    text+='\n';
+    pages.push({num:i,text,page});
   }
-  return text;
+  return pages;
 }
 
-// Split the script into small chunks so each GPT call has little to extract
-// and reliably finishes (a single big call makes the model stop early and
-// drop the tail). Split ONLY on blank lines — which in the extracted text
-// fall at page boundaries — so a speech is never cut across a chunk.
-function chunkText(text,maxChars=8000){
-  if(text.length<=maxChars)return [text];
-  const blocks=text.split(/\n\s*\n/);
-  const chunks=[];let cur='';
-  for(const b of blocks){
-    if(cur.length+b.length+2>maxChars&&cur){chunks.push(cur);cur='';}
-    cur+=b+'\n\n';
+// Render a PDF page to a JPEG data URL so GPT-4o vision can OCR scanned pages.
+async function pageToImage(page){
+  const viewport=page.getViewport({scale:2});
+  const canvas=document.createElement('canvas');
+  canvas.width=viewport.width;canvas.height=viewport.height;
+  await page.render({canvasContext:canvas.getContext('2d'),viewport}).promise;
+  return canvas.toDataURL('image/jpeg',0.85);
+}
+
+// OCR + parse a scanned/image page (one with no text layer) via GPT-4o vision.
+async function parseImageWithGPT(dataUrl){
+  const resp=await fetch('https://api.openai.com/v1/chat/completions',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+oai},
+    body:JSON.stringify({
+      model:'gpt-4o',
+      max_tokens:4096,
+      response_format:{type:'json_object'},
+      messages:[
+        {role:'system',content:'You read a screenplay page image and return the dialogue as structured JSON. Always return valid JSON only.'},
+        {role:'user',content:[
+          {type:'text',text:`This is one page of a screenplay (a scanned image). Read every line of spoken dialogue on it, in order.
+
+Return a JSON object with a single key "lines" containing an array.
+Each element: {"char":"CHARACTER NAME","direction":"stage direction or empty string","text":"dialogue text"}
+
+STRICT rules:
+- char must be ALL CAPS, no parentheticals
+- Put parentheticals like "(ON SCREEN)" or "(V.O.)" in the direction field instead
+- Each character speech = one object
+- Do NOT include scene headings, action lines, page numbers, or revision markers
+- Do NOT merge different characters together
+- Keep in script order
+- If the page has no dialogue, return {"lines":[]}`},
+          {type:'image_url',image_url:{url:dataUrl}}
+        ]}
+      ]
+    })
+  });
+
+  if(!resp.ok){
+    const e=await resp.json();
+    throw new Error(e.error?.message||'GPT error '+resp.status);
   }
-  if(cur.trim())chunks.push(cur);
-  return chunks;
+
+  const data=await resp.json();
+  const parsed=JSON.parse(data.choices[0].message.content);
+  return parsed.lines||parsed;
 }
 
 async function parseWithGPT(chunk){
