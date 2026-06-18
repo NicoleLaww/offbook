@@ -82,6 +82,8 @@
 
   #cmp{position:fixed;bottom:82px;left:50%;transform:translateX(-50%);width:calc(100% - 32px);max-width:780px;background:#161616;border:1px solid var(--border);border-radius:12px;padding:20px 24px;z-index:200;display:none;box-shadow:0 20px 60px rgba(0,0,0,.7);}
   #cmp.show{display:block;}
+  .cmp-x{position:absolute;top:8px;right:10px;background:none;border:none;color:var(--muted);font-size:16px;line-height:1;padding:6px;cursor:pointer;border-radius:6px;}
+  .cmp-x:hover{color:var(--text);background:var(--s2);}
   .cb{font-family:'Syne',sans-serif;font-weight:700;font-size:13px;letter-spacing:.1em;text-transform:uppercase;padding:10px 14px;border-radius:6px;margin-bottom:14px;}
   .cb.pass{background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.3);color:var(--green);}
   .cb.fail{background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.25);color:var(--red);}
@@ -198,6 +200,7 @@
   <div id="rlines"></div>
 
   <div id="cmp">
+    <button class="cmp-x" onclick="closeCmp()" title="Close" aria-label="Close">✕</button>
     <div class="cb" id="cbanner"></div>
     <div class="cr"><span class="cl y">You</span><div id="cyou"></div></div>
     <div class="cr"><span class="cl s">Script</span><div id="cscr"></div></div>
@@ -602,12 +605,33 @@ function evalLine(spoken){
   if(ok){passed=true;if(!cleared[cur]){cleared[cur]=true;nCleared++;}updProg();}
 }
 
-let ttsAudio=null;
-let ttsLoading=false; // lock to prevent double-fire during fetch
+// One reused <audio> element. iOS only allows play() on audio first activated
+// inside a user gesture — but our TTS audio arrives after an async fetch, when
+// the tap's gesture is already gone. So we "unlock" this element with a silent
+// clip during the tap (unlockAudio), then reuse it for the fetched speech.
+const SILENT='data:audio/wav;base64,UklGRsQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YaAAAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA';
+let player=null;
+let ttsLoading=false;
+let ttsActive=false;
+let ttsUrl=null;
+
+function getPlayer(){
+  if(!player){player=new Audio();player.playsInline=true;}
+  return player;
+}
+
+// Run synchronously inside a tap/click so iOS will allow playback later.
+function unlockAudio(){
+  const p=getPlayer();
+  p.muted=true;p.src=SILENT;
+  const pr=p.play();
+  if(pr&&pr.catch)pr.catch(()=>{});
+}
 
 function stopAudio(){
-  ttsLoading=false;
-  if(ttsAudio){ttsAudio.pause();ttsAudio.src='';ttsAudio=null;}
+  ttsLoading=false;ttsActive=false;
+  if(player){try{player.pause();}catch(e){}}
+  if(ttsUrl){URL.revokeObjectURL(ttsUrl);ttsUrl=null;}
   const pb=document.getElementById('playbtn');
   if(pb){pb.textContent='▶';pb.classList.remove('playing');pb.disabled=false;}
   const sb=document.getElementById('speakbtn');
@@ -615,9 +639,10 @@ function stopAudio(){
 }
 
 async function speakText(text){
-  // Hard stop anything in flight
+  // Hard stop anything in flight (keeps the unlocked element alive)
   stopAudio();
   ttsLoading=true;
+  const p=getPlayer();
   try{
     const res=await fetch('https://api.openai.com/v1/audio/speech',{
       method:'POST',
@@ -628,12 +653,12 @@ async function speakText(text){
     if(!res.ok){const e=await res.json();throw new Error(e.error?.message||res.status);}
     const blob=await res.blob();
     if(!ttsLoading)return false;
-    const url=URL.createObjectURL(blob);
-    ttsAudio=new Audio(url);
-    ttsLoading=false;
-    ttsAudio.onended=()=>{URL.revokeObjectURL(url);stopAudio();};
-    ttsAudio.onerror=()=>{stopAudio();};
-    ttsAudio.play();
+    ttsUrl=URL.createObjectURL(blob);
+    p.muted=false;p.src=ttsUrl;
+    p.onended=()=>{stopAudio();};
+    p.onerror=()=>{stopAudio();};
+    ttsLoading=false;ttsActive=true;
+    await p.play();
     return true;
   }catch(e){
     stopAudio();
@@ -645,7 +670,8 @@ async function speakText(text){
 async function playCurrentLine(){
   const pb=document.getElementById('playbtn');
   // If playing or loading, stop and bail — second click = stop
-  if(ttsLoading||ttsAudio){stopAudio();return;}
+  if(ttsLoading||ttsActive){stopAudio();return;}
+  unlockAudio();
   pb.disabled=true;
   pb.textContent='…';pb.classList.add('playing');
   const ok=await speakText(RL[cur].text);
@@ -655,7 +681,8 @@ async function playCurrentLine(){
 
 async function readLine(){
   const btn=document.getElementById('speakbtn');
-  if(ttsLoading||ttsAudio){stopAudio();return;}
+  if(ttsLoading||ttsActive){stopAudio();return;}
+  unlockAudio();
   btn.textContent='🔊 Loading...';btn.disabled=true;
   const ok=await speakText(RL[cur].text);
   if(ok)btn.textContent='🔊 Playing...';
@@ -784,7 +811,8 @@ function dScr(s,c){
 function updProg(){const pct=(nCleared/RL.length)*100;document.getElementById('pfill').style.width=pct+'%';document.getElementById('ptxt').textContent=`${nCleared} / ${RL.length}`;}
 function setMode(m,el){mode=m;document.querySelectorAll('.mp').forEach(b=>b.classList.remove('on'));el.classList.add('on');}
 function setSt(msg){document.getElementById('dst').textContent=msg;}
-function goEdit(){document.getElementById('cmp').classList.remove('show');show('script-screen');}
+function closeCmp(){document.getElementById('cmp').classList.remove('show');stopAudio();}
+function goEdit(){document.getElementById('cmp').classList.remove('show');stopAudio();show('script-screen');}
 function showDone(){show('done-screen');document.getElementById('dscore').textContent=`${nCleared} of ${RL.length} lines cleared · ${Math.round(nCleared/RL.length*100)}% accuracy`;}
 function restart(){cleared.fill(false);cur=0;nCleared=0;passed=false;mode='exact';document.querySelectorAll('.mp').forEach((b,i)=>b.classList.toggle('on',i===2));updProg();buildReh();show('reh-screen');scrollCur();}
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
