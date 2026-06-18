@@ -346,10 +346,11 @@ async function extractPDFText(file){
   return text;
 }
 
-// Keep the whole script in ONE call when it fits (a 10-page script is only
-// a few thousand tokens). Only split very long scripts, and split on blank
-// lines so a single speech/scene is never cut across a chunk boundary.
-function chunkText(text,maxChars=30000){
+// Split the script into small chunks so each GPT call has little to extract
+// and reliably finishes (a single big call makes the model stop early and
+// drop the tail). Split ONLY on blank lines — which in the extracted text
+// fall at page boundaries — so a speech is never cut across a chunk.
+function chunkText(text,maxChars=8000){
   if(text.length<=maxChars)return [text];
   const blocks=text.split(/\n\s*\n/);
   const chunks=[];let cur='';
