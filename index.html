@@ -714,7 +714,7 @@ function norm(s){
   // Strip all apostrophe variants so i'm==im, don't==dont regardless of source
   s=s.replace(/[‘’‚‛ʼ`´']/g,'');
   s=s.replace(/[—–‒-]+/g,' ');
-  s=s.replace(/[.,!?;:()\[\]]/g,'');
+  s=s.replace(/[.,!?;:()\[\]{}"“”„«»*…]/g,'');
   s=s.replace(/\s+/g,' ').trim();
   return s;
 }
