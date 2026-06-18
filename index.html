@@ -2,8 +2,16 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>OFFBOOK</title>
+<meta name="theme-color" content="#0a0a0a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="OFFBOOK">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Syne:wght@400;600;700;800&display=swap');
   :root{--bg:#0a0a0a;--surface:#111;--s2:#1a1a1a;--border:#2a2a2a;--text:#e8e8e8;--muted:#555;--green:#4ade80;--red:#f87171;--amber:#fbbf24;--accent:#a78bfa;}
@@ -748,6 +756,12 @@ function showDone(){show('done-screen');document.getElementById('dscore').textCo
 function restart(){cleared.fill(false);cur=0;nCleared=0;passed=false;mode='exact';document.querySelectorAll('.mp').forEach((b,i)=>b.classList.toggle('on',i===2));updProg();buildReh();show('reh-screen');scrollCur();}
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function show(id){['step-key','step-upload','script-screen','read-screen','reh-screen','done-screen'].forEach(s=>document.getElementById(s).style.display=s===id?'block':'none');}
+</script>
+<script>
+// PWA: register service worker so OFFBOOK installs to the home screen and launches offline.
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js').catch(()=>{});});
+}
 </script>
 </body>
 </html>
