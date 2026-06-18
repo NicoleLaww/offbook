@@ -593,7 +593,9 @@ async function doWhisper(blob){
   fd.append('file',blob,'audio.'+extFor(blob.type||recMime));
   fd.append('model','whisper-1');
   fd.append('language','en');
-  fd.append('prompt',RL[cur].text);
+  // Prompt Whisper with character names only (helps spell names) — NOT the
+  // expected line, so it transcribes what was actually said, not what's wanted.
+  fd.append('prompt',[...new Set(SL.map(l=>l.char))].join(', '));
   try{
     const res=await fetch('https://api.openai.com/v1/audio/transcriptions',{method:'POST',headers:{'Authorization':'Bearer '+oai},body:fd});
     if(!res.ok){const e=await res.json();setSt('⚠ '+(e.error?.message||res.status));return;}
@@ -611,7 +613,9 @@ document.addEventListener('keydown',e=>{
 });
 document.addEventListener('keyup',e=>{if(e.code==='Space'){e.preventDefault();spaceDown=false;stopRec();}});
 
+let lastSpoken='';
 function evalLine(spoken){
+  lastSpoken=spoken;
   const correct=RL[cur].text;
   const ok=chk(spoken,correct);
   const el=document.getElementById('rl-'+RL[cur].id);
@@ -831,7 +835,7 @@ function dScr(s,c){
   return wb.map((w,i)=>matchedB.has(i)?`<span class="wo">${w} </span>`:`<span class="wf">${w} </span>`).join('');
 }
 function updProg(){const pct=(nCleared/RL.length)*100;document.getElementById('pfill').style.width=pct+'%';document.getElementById('ptxt').textContent=`${nCleared} / ${RL.length}`;}
-function setMode(m,el){mode=m;document.querySelectorAll('.mp').forEach(b=>b.classList.remove('on'));el.classList.add('on');}
+function setMode(m,el){mode=m;document.querySelectorAll('.mp').forEach(b=>b.classList.remove('on'));el.classList.add('on');if(lastSpoken&&document.getElementById('cmp').classList.contains('show'))evalLine(lastSpoken);}
 function setSt(msg){document.getElementById('dst').textContent=msg;}
 function closeCmp(){document.getElementById('cmp').classList.remove('show');stopAudio();}
 function goEdit(){document.getElementById('cmp').classList.remove('show');stopAudio();show('script-screen');}
