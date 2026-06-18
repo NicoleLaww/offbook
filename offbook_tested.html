@@ -272,10 +272,15 @@ async function doPDF(file){
       return;
     }
 
-    document.getElementById('upst').innerHTML='<span class="spin"></span>Parsing dialogue with GPT-4o...';
-
-    // Step 2: Send raw text to GPT-4o to structure it
-    const lines = await parseWithGPT(rawText);
+    // Step 2: Send raw text to GPT-4o to structure it.
+    // Chunk long scripts so every page is parsed (no truncation).
+    const chunks = chunkText(rawText);
+    let lines = [];
+    for(let ci=0;ci<chunks.length;ci++){
+      document.getElementById('upst').innerHTML=`<span class="spin"></span>Parsing dialogue with GPT-4o...${chunks.length>1?` (${ci+1}/${chunks.length})`:''}`;
+      const part = await parseWithGPT(chunks[ci]);
+      if(part&&part.length)lines=lines.concat(part);
+    }
     if(!lines||!lines.length){
       document.getElementById('uperr').textContent='No dialogue found in this script.';
       document.getElementById('upst').textContent='';
@@ -333,16 +338,25 @@ async function extractPDFText(file){
   return text;
 }
 
-async function parseWithGPT(rawText){
-  // Truncate if too long (GPT-4o context limit)
-  const truncated=rawText.length>12000?rawText.slice(0,12000)+'...[truncated]':rawText;
+// Split text into chunks on line boundaries so no page is ever dropped.
+function chunkText(text,maxChars=8000){
+  const lines=text.split('\n');
+  const chunks=[];let cur='';
+  for(const ln of lines){
+    if(cur.length+ln.length+1>maxChars&&cur){chunks.push(cur);cur='';}
+    cur+=ln+'\n';
+  }
+  if(cur.trim())chunks.push(cur);
+  return chunks;
+}
 
+async function parseWithGPT(chunk){
   const resp=await fetch('https://api.openai.com/v1/chat/completions',{
     method:'POST',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+oai},
     body:JSON.stringify({
       model:'gpt-4o',
-      max_tokens:4096,
+      max_tokens:16384,
       response_format:{type:'json_object'},
       messages:[
         {
@@ -367,7 +381,7 @@ STRICT rules:
 - Keep in script order
 
 Script text:
-${truncated}`
+${chunk}`
         }
       ]
     })
