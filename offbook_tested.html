@@ -346,13 +346,16 @@ async function extractPDFText(file){
   return text;
 }
 
-// Split text into chunks on line boundaries so no page is ever dropped.
-function chunkText(text,maxChars=8000){
-  const lines=text.split('\n');
+// Keep the whole script in ONE call when it fits (a 10-page script is only
+// a few thousand tokens). Only split very long scripts, and split on blank
+// lines so a single speech/scene is never cut across a chunk boundary.
+function chunkText(text,maxChars=30000){
+  if(text.length<=maxChars)return [text];
+  const blocks=text.split(/\n\s*\n/);
   const chunks=[];let cur='';
-  for(const ln of lines){
-    if(cur.length+ln.length+1>maxChars&&cur){chunks.push(cur);cur='';}
-    cur+=ln+'\n';
+  for(const b of blocks){
+    if(cur.length+b.length+2>maxChars&&cur){chunks.push(cur);cur='';}
+    cur+=b+'\n\n';
   }
   if(cur.trim())chunks.push(cur);
   return chunks;
