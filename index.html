@@ -519,14 +519,14 @@ function buildReh(){
     el.id='rl-'+l.id;
     el.innerHTML=`<div class="rl-meta">${esc(l.char)}${l.direction?` <span style="font-style:italic;text-transform:none;letter-spacing:0;opacity:.6">(${esc(l.direction)})</span>`:''}</div><div class="rl-text">${esc(l.text)}</div>`;
     // Tap to toggle reveal on blacked lines — click to show, click again to hide
-    if(mine&&!cleared[ri]){
+    if(mine){
       el.querySelector('.rl-text').addEventListener('click',e=>{
         e.stopPropagation();
-        if(cleared[ri])return;
+        // blacked -> peek; peeking or already-revealed -> cover it again
         if(el.classList.contains('blacked')){
           el.classList.remove('blacked');
           el.classList.add('peeking');
-        } else if(el.classList.contains('peeking')){
+        } else {
           el.classList.remove('peeking');
           el.classList.add('blacked');
         }
@@ -720,7 +720,7 @@ async function readLine(){
 function tryAgain(){
   document.getElementById('cmp').classList.remove('show');
   const el=document.getElementById('rl-'+RL[cur].id);
-  if(el&&!cleared[cur]){el.classList.remove('peeking');el.classList.add('blacked');}
+  if(el){el.classList.remove('peeking');el.classList.add('blacked');}
   passed=false;
 }
 
@@ -732,11 +732,9 @@ function moveTo(idx){
   passed=false;
   const nel=document.getElementById('rl-'+RL[cur].id);
   if(nel)nel.classList.add('cur');
-  // Re-hide if not cleared
-  if(!cleared[cur]){
-    const el=document.getElementById('rl-'+RL[cur].id);
-    if(el){el.classList.remove('peeking');el.classList.add('blacked');}
-  }
+  // Always cover the line you land on, so moving back and forth lets you re-test
+  const cel=document.getElementById('rl-'+RL[cur].id);
+  if(cel){cel.classList.remove('peeking');cel.classList.add('blacked');}
   scrollCur();
   updNavBtns();
 }
