@@ -215,6 +215,7 @@
         <button class="mp" onclick="setMode('word',this)">Word</button>
         <button class="mp on" onclick="setMode('exact',this)">Exact</button>
       </div>
+      <button class="ghost" id="voicebtn" onclick="toggleVoice()" title="Scene-partner voice">🔊 Free</button>
       <button class="ghost" onclick="goEdit()">← Edit</button>
     </div>
   </div>
@@ -610,7 +611,7 @@ function goReh(){
   cleared=new Array(RL.length).fill(false);
   cur=0;nCleared=0;passed=false;mode='exact';
   document.querySelectorAll('.mp').forEach((b,i)=>b.classList.toggle('on',i===2));
-  buildReh();updProg();show('reh-screen');scrollCur();updNavBtns();
+  buildReh();updProg();show('reh-screen');scrollCur();updNavBtns();updateVoiceBtn();
 }
 
 function buildReh(){
@@ -766,6 +767,7 @@ function unlockAudio(){
 function stopAudio(){
   ttsLoading=false;ttsActive=false;
   if(player){try{player.pause();}catch(e){}}
+  if('speechSynthesis' in window){try{speechSynthesis.cancel();}catch(e){}}
   if(ttsUrl){URL.revokeObjectURL(ttsUrl);ttsUrl=null;}
   const pb=document.getElementById('playbtn');
   if(pb){pb.textContent='▶';pb.classList.remove('playing');pb.disabled=false;}
@@ -773,9 +775,39 @@ function stopAudio(){
   if(sb){sb.textContent='🔊 Read it to me';sb.disabled=false;}
 }
 
+// Voice choice: free = browser speechSynthesis ($0); HQ = OpenAI tts-1 (paid).
+function useHQVoice(){return localStorage.getItem('offbook_hq')==='1' && !!oai;}
+function updateVoiceBtn(){
+  const b=document.getElementById('voicebtn');if(!b)return;
+  const hq=localStorage.getItem('offbook_hq')==='1';
+  b.textContent=hq?'✨ HQ':'🔊 Free';
+  b.title=hq?'Scene-partner voice: OpenAI (paid, nicer)':'Scene-partner voice: browser (free)';
+}
+function toggleVoice(){
+  const wasHQ=localStorage.getItem('offbook_hq')==='1';
+  localStorage.setItem('offbook_hq',wasHQ?'0':'1');
+  if(!wasHQ&&!oai)setSt('HQ voice uses your OpenAI key — free voice works without one');
+  updateVoiceBtn();
+}
+// Free, no-API scene-partner voice built into the browser.
+function speakBrowser(text){
+  if(!('speechSynthesis' in window)){setSt('This browser has no built-in voice');return false;}
+  try{
+    speechSynthesis.cancel();
+    const u=new SpeechSynthesisUtterance(text);
+    u.lang='en-US';u.rate=0.95;
+    u.onend=()=>{stopAudio();};
+    u.onerror=()=>{stopAudio();};
+    ttsActive=true;
+    speechSynthesis.speak(u);
+    return true;
+  }catch(e){stopAudio();setSt('Voice error');return false;}
+}
+
 async function speakText(text){
   // Hard stop anything in flight (keeps the unlocked element alive)
   stopAudio();
+  if(!useHQVoice())return speakBrowser(text);
   ttsLoading=true;
   const p=getPlayer();
   try{
@@ -804,7 +836,7 @@ async function speakText(text){
 
 async function playCurrentLine(){
   const pb=document.getElementById('playbtn');
-  if(demoMode){setSt('Add your key to hear lines read aloud');return;}
+  // (demo works too — free browser voice needs no key)
   // If playing or loading, stop and bail — second click = stop
   if(ttsLoading||ttsActive){stopAudio();return;}
   unlockAudio();
