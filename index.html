@@ -128,18 +128,34 @@
   #done-screen h2{font-family:'Syne',sans-serif;font-weight:800;font-size:48px;margin-bottom:12px;color:var(--green);}
   #done-screen p{color:var(--muted);margin-bottom:32px;}
   .score{font-family:'Syne',sans-serif;font-size:20px;margin-bottom:40px;}
+  #demobar{position:fixed;top:0;left:0;right:0;z-index:300;background:var(--accent);color:#000;font-size:12px;font-weight:500;padding:10px 16px;display:none;align-items:center;justify-content:center;gap:12px;text-align:center;flex-wrap:wrap;}
+  #demobar button{background:#000;color:var(--accent);border:none;border-radius:6px;font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:.08em;padding:7px 13px;cursor:pointer;text-transform:uppercase;}
+  body.demo{padding-top:80px;}
+  body.demo #demobar{display:flex;}
+  #step-key details{margin-top:24px;border-top:1px solid var(--border);padding-top:18px;}
+  #step-key summary{cursor:pointer;font-size:13px;color:var(--accent);list-style:none;}
+  #step-key summary::-webkit-details-marker{display:none;}
+  .demo-cta{font-size:12px;color:var(--muted);margin-bottom:20px;}
 </style>
 </head>
 <body>
 
-<!-- KEY -->
+<div id="demobar">🎬 You're in the demo — <span>add your OpenAI key to rehearse your own scripts</span> <button onclick="exitDemo()">Add key →</button></div>
+
+<!-- LANDING / KEY -->
 <div id="step-key" class="screen">
-  <div class="logo" style="margin-bottom:32px">OFF<span>BOOK</span></div>
-  <h2>OpenAI Key</h2>
-  <div class="sub">One key — GPT-4o reads the script, Whisper transcribes your voice.</div>
-  <input id="oai" type="password" placeholder="sk-..." />
-  <button class="big" onclick="doKey()">NEXT →</button>
-  <div class="err" id="kerr"></div>
+  <div class="logo" style="margin-bottom:24px">OFF<span>BOOK</span></div>
+  <h2>Learn your lines, off book.</h2>
+  <div class="sub">Upload an audition side, black out your lines, and rehearse out loud. OFFBOOK listens and shows you exactly what you got wrong.</div>
+  <button class="big" onclick="startDemo()" style="margin-bottom:14px">▶ &nbsp;TRY THE DEMO</button>
+  <div class="demo-cta">No sign-up, no key needed — see how it works in 20 seconds.</div>
+  <details>
+    <summary>I have an OpenAI key →</summary>
+    <div class="sub" style="margin-top:16px">One key — GPT-4o reads the script, Whisper transcribes your voice.</div>
+    <input id="oai" type="password" placeholder="sk-..." />
+    <button class="big" onclick="doKey()">NEXT →</button>
+    <div class="err" id="kerr"></div>
+  </details>
 </div>
 
 <!-- UPLOAD -->
@@ -311,6 +327,44 @@ function renderSaved(){
     const del=document.createElement('button');del.className='del';del.textContent='✕';del.title='Delete';del.onclick=()=>delScript(s.name);
     row.appendChild(ld);row.appendChild(del);box.appendChild(row);
   });
+}
+
+// DEMO — a keyless taste of the product. The scoring/diff is all client-side,
+// so we can show the whole "record → here's what you got wrong" flow with a
+// scripted take and zero API calls. Only real (own-script) use needs a key.
+let demoMode=false;
+const DEMO_LINES=[
+  {char:'JESS',direction:'',text:"You said you'd be here an hour ago.",demo:"you said you would be here like an hour ago"},
+  {char:'SAM',direction:'',text:"I know. I'm sorry. The train—"},
+  {char:'JESS',direction:'',text:"Don't. Don't do the train thing.",demo:"dont do the train thing"},
+  {char:'SAM',direction:'',text:"It's the truth."},
+  {char:'JESS',direction:'',text:"It's always the truth with you. That's the problem.",demo:"its always the truth with you thats the whole problem"},
+  {char:'SAM',direction:'',text:"What do you want me to say?"},
+  {char:'JESS',direction:'',text:"Nothing. That's the worst part. I don't want you to say anything anymore.",demo:"nothing thats the worst part i dont want you to say anything"},
+  {char:'SAM',direction:'',text:"Jess."},
+  {char:'JESS',direction:'',text:"Just go home, Sam.",demo:"just go home sam"}
+];
+function startDemo(){
+  demoMode=true;
+  document.body.classList.add('demo');
+  SL=DEMO_LINES.map((l,i)=>({...l,id:i,isMine:l.char==='JESS'}));
+  curName='';
+  document.getElementById('fname').textContent='Demo scene';
+  buildScript();show('script-screen');
+}
+function exitDemo(){
+  demoMode=false;
+  document.body.classList.remove('demo');
+  show('step-key');
+  const d=document.querySelector('#step-key details');if(d)d.open=true;
+  const inp=document.getElementById('oai');if(inp)inp.focus();
+  window.scrollTo(0,0);
+}
+// In demo, a mic tap plays a scripted take through the real scorer (no API).
+function demoAttempt(){
+  const line=RL[cur];if(!line)return;
+  evalLine(line.demo||line.text);
+  const sb=document.getElementById('speakbtn');if(sb)sb.style.display='none';
 }
 
 // UPLOAD
@@ -621,6 +675,7 @@ function toggleRec(){
 
 async function startRec(e){
   if(e&&e.preventDefault)e.preventDefault();
+  if(demoMode){demoAttempt();return;}
   if(passed||recording)return;
   document.getElementById('cmp').classList.remove('show');
   passed=false;
@@ -749,6 +804,7 @@ async function speakText(text){
 
 async function playCurrentLine(){
   const pb=document.getElementById('playbtn');
+  if(demoMode){setSt('Add your key to hear lines read aloud');return;}
   // If playing or loading, stop and bail — second click = stop
   if(ttsLoading||ttsActive){stopAudio();return;}
   unlockAudio();
@@ -761,6 +817,7 @@ async function playCurrentLine(){
 
 async function readLine(){
   const btn=document.getElementById('speakbtn');
+  if(demoMode){exitDemo();return;}
   if(ttsLoading||ttsActive){stopAudio();return;}
   unlockAudio();
   btn.textContent='🔊 Loading...';btn.disabled=true;
