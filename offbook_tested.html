@@ -93,7 +93,8 @@
   .cl.s{color:var(--green);}
   .wo{color:var(--text);}
   .ww{color:var(--red);text-decoration:line-through;margin-right:2px;}
-  .wf{color:var(--amber);}
+  .wf{color:var(--amber);font-weight:600;text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:2px;}
+  .clegend{font-size:10px;color:var(--muted);margin:12px 0 2px;letter-spacing:.02em;line-height:1.6;}
   .cba{display:flex;gap:10px;justify-content:flex-end;margin-top:12px;}
 
   kbd{background:var(--s2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-family:inherit;font-size:10px;}
@@ -204,6 +205,7 @@
     <div class="cb" id="cbanner"></div>
     <div class="cr"><span class="cl y">You</span><div id="cyou"></div></div>
     <div class="cr"><span class="cl s">Script</span><div id="cscr"></div></div>
+    <div class="clegend"><span class="ww">strikethrough</span> = you said it wrong &nbsp;·&nbsp; <span class="wf">underlined</span> = in the script, you missed or changed it</div>
     <div class="cba">
       <button class="ghost" onclick="tryAgain()">Try again</button>
       <button class="ghost" id="speakbtn" onclick="readLine()" style="display:none">🔊 Read it to me</button>
