@@ -306,7 +306,7 @@ async function doPDF(file){
       }
     }
 
-    SL=merged.map((l,i)=>({...l,id:i,isMine:false}));
+    SL=merged.map((l,i)=>({...l,text:cleanText(l.text),id:i,isMine:false}));
     document.getElementById('upst').textContent=`✓ ${SL.length} lines found`;
     setTimeout(()=>{buildScript();show('script-screen');},300);
 
@@ -774,6 +774,17 @@ function norm(s){
   return s;
 }
 
+// Remove stray screenplay quote marks from displayed dialogue (keep apostrophes).
+function cleanText(t){return (t||'').replace(/["“”„«»]/g,'').replace(/\s+/g,' ').trim();}
+
+// Split into display words paired with their normalized form, so the comparison
+// can SHOW real words (don't, you're, caps, punctuation) while MATCHING on norm.
+function tokenize(s){
+  return (s||'').replace(/[—–‒-]+/g,' ').split(/\s+/).filter(Boolean)
+    .map(w=>({disp:w,n:w.toLowerCase().replace(/[‘’‚‛ʼ`´']/g,'').replace(/[.,!?;:()\[\]{}"“”„«»*…]/g,'')}))
+    .filter(t=>t.n.length>0);
+}
+
 // LCS on position-tagged tokens so "i'm" at index 3 ≠ "i'm" at index 10
 // This prevents greedy early-match consuming a word that belongs later
 function lcs(a,b){
@@ -824,17 +835,17 @@ function chk(s,c){
 }
 
 function dYou(s,c){
-  const wa=norm(s).split(' '),wb=norm(c).split(' ');
-  const matches=bestMatches(wa,wb);
+  const ta=tokenize(s),tb=tokenize(c);
+  const matches=bestMatches(ta.map(t=>t.n),tb.map(t=>t.n));
   const matchedA=new Set(matches.map(m=>m[0]));
-  return wa.map((w,i)=>matchedA.has(i)?`<span class="wo">${w} </span>`:`<span class="ww">${w} </span>`).join('');
+  return ta.map((t,i)=>matchedA.has(i)?`<span class="wo">${esc(t.disp)} </span>`:`<span class="ww">${esc(t.disp)} </span>`).join('');
 }
 
 function dScr(s,c){
-  const wa=norm(s).split(' '),wb=norm(c).split(' ');
-  const matches=bestMatches(wa,wb);
+  const ta=tokenize(s),tb=tokenize(c);
+  const matches=bestMatches(ta.map(t=>t.n),tb.map(t=>t.n));
   const matchedB=new Set(matches.map(m=>m[1]));
-  return wb.map((w,i)=>matchedB.has(i)?`<span class="wo">${w} </span>`:`<span class="wf">${w} </span>`).join('');
+  return tb.map((t,i)=>matchedB.has(i)?`<span class="wo">${esc(t.disp)} </span>`:`<span class="wf">${esc(t.disp)} </span>`).join('');
 }
 function updProg(){const pct=(nCleared/RL.length)*100;document.getElementById('pfill').style.width=pct+'%';document.getElementById('ptxt').textContent=`${nCleared} / ${RL.length}`;}
 function setMode(m,el){mode=m;document.querySelectorAll('.mp').forEach(b=>b.classList.remove('on'));el.classList.add('on');if(lastSpoken&&document.getElementById('cmp').classList.contains('show'))evalLine(lastSpoken);}
