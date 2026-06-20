@@ -95,6 +95,14 @@
   .ww{color:var(--red);text-decoration:line-through;margin-right:2px;}
   .wf{color:var(--amber);font-weight:600;text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:2px;}
   .clegend{font-size:10px;color:var(--muted);margin:12px 0 2px;letter-spacing:.02em;line-height:1.6;}
+  #saved{margin-top:28px;}
+  .saved-h{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin-bottom:10px;}
+  .saved-item{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:8px;}
+  .saved-item .nm{flex:1;font-size:14px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .saved-item .mt{font-size:11px;color:var(--muted);}
+  .saved-item button{background:var(--s2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'DM Mono',monospace;font-size:12px;padding:7px 12px;cursor:pointer;}
+  .saved-item button.ld{border-color:var(--accent);color:var(--accent);}
+  .saved-item button.del{color:var(--muted);}
   .cba{display:flex;gap:10px;justify-content:flex-end;margin-top:12px;}
 
   kbd{background:var(--s2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-family:inherit;font-size:10px;}
@@ -146,6 +154,7 @@
   <input type="file" id="pdfin" accept=".pdf" style="display:none" onchange="doPDF(this.files[0])">
   <div id="upst" style="font-size:13px;color:var(--muted);margin-top:12px;min-height:20px;"></div>
   <div class="err" id="uperr"></div>
+  <div id="saved"></div>
 </div>
 
 <!-- SCRIPT PICKER -->
@@ -261,7 +270,47 @@ document.getElementById('oai').addEventListener('keydown',e=>{if(e.key==='Enter'
 function doKey(){
   const v=document.getElementById('oai').value.trim();
   if(!v.startsWith('sk-')){document.getElementById('kerr').textContent='Key should start with sk-';return;}
-  oai=v;show('step-upload');
+  oai=v;show('step-upload');renderSaved();
+}
+
+// SAVED SCRIPTS — parsed scripts are cached in your browser (localStorage) so
+// you can re-load one instantly without paying to parse the PDF again.
+let curName='';
+function loadSaved(){try{return JSON.parse(localStorage.getItem('offbook_scripts')||'[]');}catch(e){return [];}}
+function writeSaved(arr){try{localStorage.setItem('offbook_scripts',JSON.stringify(arr));}catch(e){}}
+function saveCurrent(){
+  if(!curName||!SL.length)return;
+  const arr=loadSaved().filter(s=>s.name!==curName);
+  arr.unshift({name:curName,lines:SL.map(l=>({char:l.char,direction:l.direction,text:l.text,isMine:!!l.isMine}))});
+  writeSaved(arr.slice(0,30));
+  renderSaved();
+}
+function loadScript(name){
+  const s=loadSaved().find(x=>x.name===name);if(!s)return;
+  SL=s.lines.map((l,i)=>({...l,id:i,isMine:!!l.isMine}));
+  curName=name;
+  document.getElementById('fname').textContent=name;
+  buildScript();show('script-screen');
+}
+function delScript(name){
+  if(!confirm('Delete saved script "'+name+'"?'))return;
+  writeSaved(loadSaved().filter(s=>s.name!==name));
+  renderSaved();
+}
+function renderSaved(){
+  const box=document.getElementById('saved');if(!box)return;
+  const arr=loadSaved();box.innerHTML='';
+  if(!arr.length)return;
+  const h=document.createElement('div');h.className='saved-h';h.textContent='Saved scripts — load without re-uploading (free)';
+  box.appendChild(h);
+  arr.forEach(s=>{
+    const mine=s.lines.filter(l=>l.isMine).length;
+    const row=document.createElement('div');row.className='saved-item';
+    row.innerHTML=`<div class="nm">${esc(s.name)}</div><div class="mt">${s.lines.length} lines${mine?' · '+mine+' yours':''}</div>`;
+    const ld=document.createElement('button');ld.className='ld';ld.textContent='Load';ld.onclick=()=>loadScript(s.name);
+    const del=document.createElement('button');del.className='del';del.textContent='✕';del.title='Delete';del.onclick=()=>delScript(s.name);
+    row.appendChild(ld);row.appendChild(del);box.appendChild(row);
+  });
 }
 
 // UPLOAD
@@ -307,6 +356,7 @@ async function doPDF(file){
     }
 
     SL=merged.map((l,i)=>({...l,text:cleanText(l.text),id:i,isMine:false}));
+    curName=file.name;saveCurrent();
     document.getElementById('upst').textContent=`✓ ${SL.length} lines found`;
     setTimeout(()=>{buildScript();show('script-screen');},300);
 
@@ -471,6 +521,7 @@ function updCount(){
   document.getElementById('mcount').textContent=n;
   document.getElementById('rehbtn').disabled=n===0;
   document.getElementById('readbtn').disabled=n===0;
+  saveCurrent();
 }
 
 function goRead(){
