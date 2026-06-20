@@ -401,7 +401,8 @@ async function parseWithGPT(chunk){
     method:'POST',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+oai},
     body:JSON.stringify({
-      model:'gpt-4o',
+      // Text parsing is easy — use the much cheaper mini. (OCR stays on gpt-4o.)
+      model:'gpt-4o-mini',
       max_tokens:16384,
       response_format:{type:'json_object'},
       messages:[
