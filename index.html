@@ -136,6 +136,10 @@
   #step-key summary{cursor:pointer;font-size:13px;color:var(--accent);list-style:none;}
   #step-key summary::-webkit-details-marker{display:none;}
   .demo-cta{font-size:12px;color:var(--muted);margin-bottom:20px;}
+  .ksub{font-size:12px;color:var(--muted);margin:16px 0 18px;line-height:1.6;}
+  .klab{display:block;font-size:12px;color:var(--text);margin-bottom:6px;}
+  .kfree{color:var(--accent);font-size:10px;text-transform:uppercase;letter-spacing:.05em;margin-left:4px;}
+  #step-key details input{margin-bottom:14px;}
 </style>
 </head>
 <body>
@@ -150,10 +154,15 @@
   <button class="big" onclick="startDemo()" style="margin-bottom:14px">▶ &nbsp;TRY THE DEMO</button>
   <div class="demo-cta">No sign-up, no key needed — see how it works in 20 seconds.</div>
   <details>
-    <summary>I have an OpenAI key →</summary>
-    <div class="sub" style="margin-top:16px">One key — GPT-4o reads the script, Whisper transcribes your voice.</div>
+    <summary>Use your own keys →</summary>
+    <div class="ksub">Paste any you have — you need at least one "reads scripts" key. The free ones cover everything.</div>
+    <label class="klab">Gemini <span class="kfree">FREE — reads scripts · aistudio.google.com</span></label>
+    <input id="gem" type="password" placeholder="AIza..." />
+    <label class="klab">Groq <span class="kfree">FREE — transcribes your voice · console.groq.com</span></label>
+    <input id="groq" type="password" placeholder="gsk_..." />
+    <label class="klab">OpenAI <span class="kfree">optional, paid — fallback + nicer voice</span></label>
     <input id="oai" type="password" placeholder="sk-..." />
-    <button class="big" onclick="doKey()">NEXT →</button>
+    <button class="big" onclick="saveKeys()">SAVE &amp; CONTINUE →</button>
     <div class="err" id="kerr"></div>
   </details>
 </div>
@@ -162,7 +171,7 @@
 <div id="step-upload" class="screen" style="display:none">
   <div class="logo" style="margin-bottom:32px">OFF<span>BOOK</span></div>
   <h2>Upload Script</h2>
-  <div class="sub">Drop your PDF — we extract the text locally, then GPT-4o structures it into clean lines.</div>
+  <div class="sub">Drop your PDF — we read it into clean lines you can rehearse.</div>
   <label id="dz" for="pdfin">
     <div class="icon">📄</div>
     <div class="dzl">Drop PDF here or <em>tap to browse</em></div>
@@ -279,15 +288,27 @@ window.dispatchEvent(new Event('pdfjsready'));
 </script>
 
 <script>
-let oai='';
+let oai=localStorage.getItem('offbook_oai')||'';
+let gemKey=localStorage.getItem('offbook_gem')||'';
+let groqKey=localStorage.getItem('offbook_groq')||'';
 let SL=[],RL=[],cur=0,cleared=[],nCleared=0,mode='exact',passed=false;
 
-// KEY
-document.getElementById('oai').addEventListener('keydown',e=>{if(e.key==='Enter')doKey();});
-function doKey(){
-  const v=document.getElementById('oai').value.trim();
-  if(!v.startsWith('sk-')){document.getElementById('kerr').textContent='Key should start with sk-';return;}
-  oai=v;show('step-upload');renderSaved();
+// KEYS — multi-provider. Prefill any saved keys so they aren't re-typed.
+['gem','groq','oai'].forEach(id=>{
+  const el=document.getElementById(id);
+  if(el)el.value=({gem:gemKey,groq:groqKey,oai:oai})[id]||'';
+});
+document.getElementById('oai').addEventListener('keydown',e=>{if(e.key==='Enter')saveKeys();});
+function saveKeys(){
+  gemKey=document.getElementById('gem').value.trim();
+  groqKey=document.getElementById('groq').value.trim();
+  oai=document.getElementById('oai').value.trim();
+  localStorage.setItem('offbook_gem',gemKey);
+  localStorage.setItem('offbook_groq',groqKey);
+  localStorage.setItem('offbook_oai',oai);
+  if(!gemKey&&!oai){document.getElementById('kerr').textContent='Add a Gemini key (free) or an OpenAI key to read scripts.';return;}
+  document.getElementById('kerr').textContent='';
+  show('step-upload');renderSaved();
 }
 
 // SAVED SCRIPTS — parsed scripts are cached in your browser (localStorage) so
@@ -358,7 +379,7 @@ function exitDemo(){
   document.body.classList.remove('demo');
   show('step-key');
   const d=document.querySelector('#step-key details');if(d)d.open=true;
-  const inp=document.getElementById('oai');if(inp)inp.focus();
+  const inp=document.getElementById('gem');if(inp)inp.focus();
   window.scrollTo(0,0);
 }
 // In demo, a mic tap plays a scripted take through the real scorer (no API).
@@ -391,7 +412,7 @@ async function doPDF(file){
     for(const p of pages){
       const hasText = p.text.trim().length >= 40;
       document.getElementById('upst').innerHTML=`<span class="spin"></span>Reading page ${p.num}/${pages.length}${hasText?'':' (scanned — using vision)'}...`;
-      const part = hasText ? await parseWithGPT(p.text) : await parseImageWithGPT(await pageToImage(p.page));
+      const part = hasText ? await parseTextLLM(p.text) : await parseImageLLM(await pageToImage(p.page));
       if(part&&part.length)lines=lines.concat(part);
     }
     if(!lines||!lines.length){
@@ -555,6 +576,40 @@ ${chunk}`
   return parsed.lines||parsed;
 }
 
+// Gemini (Google AI Studio) — free-tier text + vision parsing. Same job as the
+// OpenAI parse functions, different request shape.
+const GEMINI_RULES=`You are a screenplay parser. Extract every line of spoken dialogue in order.
+Return ONLY a JSON object with a single key "lines" — an array of
+{"char":"CHARACTER NAME","direction":"stage direction or empty string","text":"dialogue text"}.
+Rules: char ALL CAPS, no parentheticals (put "(V.O.)" etc. in direction); one object per speech;
+exclude scene headings, action lines, page numbers, revision marks; keep script order.`;
+async function geminiParse(text,dataUrl){
+  const parts=[{text:GEMINI_RULES+(text?('\n\nScript text:\n'+text):'\n\nRead the dialogue from the attached screenplay page image.')}];
+  if(dataUrl)parts.push({inline_data:{mime_type:'image/jpeg',data:dataUrl.split(',')[1]}});
+  const res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+encodeURIComponent(gemKey),{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({contents:[{parts}],generationConfig:{responseMimeType:'application/json'},
+      safetySettings:['HARM_CATEGORY_HARASSMENT','HARM_CATEGORY_HATE_SPEECH','HARM_CATEGORY_SEXUALLY_EXPLICIT','HARM_CATEGORY_DANGEROUS_CONTENT'].map(c=>({category:c,threshold:'BLOCK_NONE'}))})
+  });
+  if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error((e.error&&e.error.message)||('Gemini error '+res.status));}
+  const data=await res.json();
+  const txt=(((data.candidates||[])[0]||{}).content||{}).parts&&data.candidates[0].content.parts[0].text||'';
+  const parsed=JSON.parse(txt);
+  return parsed.lines||parsed;
+}
+
+// Route each parse to the cheapest available provider (Gemini free → OpenAI).
+async function parseTextLLM(text){
+  if(gemKey)return geminiParse(text,null);
+  if(oai)return parseWithGPT(text);
+  throw new Error('Add a Gemini key (free) or OpenAI key to read scripts');
+}
+async function parseImageLLM(dataUrl){
+  if(gemKey)return geminiParse(null,dataUrl);
+  if(oai)return parseImageWithGPT(dataUrl);
+  throw new Error('Add a Gemini key (free) or OpenAI key to read scanned pages');
+}
+
 // SCRIPT VIEW
 function buildScript(){
   const c=document.getElementById('slines');c.innerHTML='';
@@ -705,21 +760,26 @@ async function stopRec(e){
 }
 
 async function doWhisper(blob){
+  if(!groqKey&&!oai){setSt('Add a Groq key (free) or OpenAI key to transcribe');return;}
+  // Route to Groq (free, ~9x cheaper) when available, else OpenAI Whisper.
+  const useGroq=!!groqKey;
+  const url=useGroq?'https://api.groq.com/openai/v1/audio/transcriptions':'https://api.openai.com/v1/audio/transcriptions';
+  const key=useGroq?groqKey:oai;
   const fd=new FormData();
   fd.append('file',blob,'audio.'+extFor(blob.type||recMime));
-  fd.append('model','whisper-1');
+  fd.append('model',useGroq?'whisper-large-v3-turbo':'whisper-1');
   fd.append('language','en');
-  // Prompt Whisper with character names only (helps spell names) — NOT the
-  // expected line, so it transcribes what was actually said, not what's wanted.
+  // Prompt with character names only (helps spell names) — NOT the expected
+  // line, so it transcribes what was actually said, not what's wanted.
   fd.append('prompt',[...new Set(SL.map(l=>l.char))].join(', '));
   try{
-    const res=await fetch('https://api.openai.com/v1/audio/transcriptions',{method:'POST',headers:{'Authorization':'Bearer '+oai},body:fd});
-    if(!res.ok){const e=await res.json();setSt('⚠ '+(e.error?.message||res.status));return;}
+    const res=await fetch(url,{method:'POST',headers:{'Authorization':'Bearer '+key},body:fd});
+    if(!res.ok){const e=await res.json().catch(()=>({}));setSt('⚠ '+((e.error&&e.error.message)||res.status));return;}
     const data=await res.json();
     const spoken=(data.text||'').trim();
     setSt('');
     if(spoken)evalLine(spoken);else setSt('Nothing heard — try again');
-  }catch(e){setSt('⚠ '+e.message);}
+  }catch(e){setSt('⚠ '+(/fetch/i.test(e.message)?'Network/credits issue — check your key':e.message));}
 }
 
 document.addEventListener('keydown',e=>{
