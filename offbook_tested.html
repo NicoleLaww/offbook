@@ -418,7 +418,11 @@ async function doPDF(file){
     setTimeout(()=>{buildScript();show('script-screen');},300);
 
   }catch(e){
-    document.getElementById('uperr').textContent='Error: '+e.message;
+    let msg=e&&e.message?e.message:String(e);
+    if(/failed to fetch|networkerror|load failed|fetch/i.test(msg)){
+      msg="Couldn't reach OpenAI. Most likely your key is out of credits or hit a spending limit (check platform.openai.com → Billing). Also check you're online and no ad-blocker/VPN is blocking api.openai.com.";
+    }
+    document.getElementById('uperr').textContent=msg;
     document.getElementById('upst').textContent='';
   }
 }
