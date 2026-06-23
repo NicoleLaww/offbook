@@ -31,7 +31,7 @@
   .ghost:hover{border-color:var(--accent);color:var(--text);}
   .err{color:var(--red);font-size:12px;margin-top:8px;line-height:1.6;}
 
-  #dz{border:2px dashed var(--border);border-radius:12px;padding:52px;text-align:center;cursor:pointer;transition:all .2s;background:var(--surface);margin-bottom:16px;}
+  #dz{display:block;border:2px dashed var(--border);border-radius:12px;padding:52px;text-align:center;cursor:pointer;transition:all .2s;background:var(--surface);margin-bottom:16px;}
   #dz:hover,#dz.over{border-color:var(--accent);background:rgba(167,139,250,.04);}
   #dz .icon{font-size:36px;margin-bottom:12px;}
   #dz .dzl{font-size:14px;color:var(--muted);}
@@ -163,11 +163,11 @@
   <div class="logo" style="margin-bottom:32px">OFF<span>BOOK</span></div>
   <h2>Upload Script</h2>
   <div class="sub">Drop your PDF — we extract the text locally, then GPT-4o structures it into clean lines.</div>
-  <div id="dz" onclick="document.getElementById('pdfin').click()">
+  <label id="dz" for="pdfin">
     <div class="icon">📄</div>
-    <div class="dzl">Drop PDF here or <em>click to browse</em></div>
-  </div>
-  <input type="file" id="pdfin" accept=".pdf" style="display:none" onchange="doPDF(this.files[0])">
+    <div class="dzl">Drop PDF here or <em>tap to browse</em></div>
+  </label>
+  <input type="file" id="pdfin" accept="application/pdf,.pdf" onchange="doPDF(this.files[0])" style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;clip:rect(0,0,0,0);">
   <div id="upst" style="font-size:13px;color:var(--muted);margin-top:12px;min-height:20px;"></div>
   <div class="err" id="uperr"></div>
   <div id="saved"></div>
@@ -375,7 +375,9 @@ dz.addEventListener('dragleave',()=>dz.classList.remove('over'));
 dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('over');doPDF(e.dataTransfer.files[0]);});
 
 async function doPDF(file){
-  if(!file||file.type!=='application/pdf'){document.getElementById('uperr').textContent='PDF only please.';return;}
+  if(!file){return;}
+  // Accept by extension too — some phones report an empty/odd MIME for valid PDFs.
+  if(file.type!=='application/pdf' && !/\.pdf$/i.test(file.name||'')){document.getElementById('uperr').textContent='Please choose a PDF file.';return;}
   document.getElementById('upst').innerHTML='<span class="spin"></span>Extracting text from PDF...';
   document.getElementById('uperr').textContent='';
   document.getElementById('fname').textContent=file.name;
