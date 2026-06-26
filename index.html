@@ -148,6 +148,7 @@
   .wk-msg-u{background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:8px 12px;margin:0 0 14px auto;max-width:85%;font-size:13px;color:var(--muted);width:fit-content;}
   #work-modal #wk-msg{width:100%;background:var(--s2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Mono',monospace;font-size:13px;padding:10px;line-height:1.5;resize:vertical;}
   .wk-actions{display:flex;gap:8px;margin-top:10px;align-items:center;}
+  .wk-p2{display:block;width:100%;margin-bottom:8px;border-color:var(--accent);color:var(--accent);}
   .am-card{position:relative;background:#161616;border:1px solid var(--border);border-radius:14px;padding:26px 22px;width:100%;max-width:460px;box-shadow:0 20px 60px rgba(0,0,0,.7);max-height:90vh;overflow:auto;}
   .am-h{font-family:'Syne',sans-serif;font-weight:800;font-size:20px;margin-bottom:4px;}
   .am-sub{font-size:12px;color:var(--muted);margin-bottom:18px;line-height:1.6;}
@@ -269,7 +270,8 @@
     </div>
     <div id="wk-out" class="wk-out"></div>
     <div id="wk-followup" style="display:none">
-      <textarea id="wk-msg" rows="2" placeholder="Ask a follow-up — e.g. take me through beat 3, or the fatal flaw…"></textarea>
+      <button class="ghost wk-p2" onclick="phase2()">→ Now bring myself to it (Phase 2)</button>
+      <textarea id="wk-msg" rows="2" placeholder="Ask a follow-up — e.g. take me through beat 3, or start Phase 2…"></textarea>
     </div>
     <div class="wk-actions">
       <button class="big" id="wk-go" onclick="sendWork()" style="flex:1">BREAK IT DOWN</button>
@@ -842,7 +844,31 @@ OUTPUT (conversational prose; bullets only for real lists; bold the verbs with *
 4. THE BEATS — one per beat: "Beat N — [what happens]. Verb: to **[transitive verb]**. [The action aimed at the partner, plus the gap if one opens — expected X, got Y, so the verb escalates/pivots.] Watch: [whose face, what you're reading, what it tells you next.]"
 5. WHAT TO CHASE NEXT — two or three threads (fatal flaw, what the partner gives, a moment for rehearsal). Offer to take one; don't dump all.
 
-CRAFT RULES: Verbs are transitive and aimed at one person — the room is leverage, the partner is the mark. Resistance is fuel, not obstacle. Don't play psychology, the wound, or the result. Commit to the action fully and let the audience hold any ambiguity. Preparation lives before the first line. The line comes out of the partner's behavior, not the plan. Grounded genres get no telegraphing.`;
+CRAFT RULES: Verbs are transitive and aimed at one person — the room is leverage, the partner is the mark. Resistance is fuel, not obstacle. Don't play psychology, the wound, or the result. Commit to the action fully and let the audience hold any ambiguity. Preparation lives before the first line. The line comes out of the partner's behavior, not the plan. Grounded genres get no telegraphing.
+
+=== TWO PHASES ===
+Everything above is PHASE 1 — The Breakdown (what the scene needs: spine, locked points, beat sheet). What follows is PHASE 2 — Bringing Myself To It (what the actor brings). Same engine, same three lenses. Do Phase 1 first, or use a breakdown the actor already has, then move to Phase 2 when they're ready to put themselves in. The actor may also jump straight to Phase 2 with homework done.
+
+PHASE 2 — BRINGING MYSELF TO IT (collaborative):
+This is where the actor stops auditioning to be someone else's idea of the character and casts THEMSELVES in it. The casting sheet says "charming"; their reference might be tomboy-effortless-it-factor. If the actor chases THEIR charming, they perform a copy of a quality they don't own and the camera clocks it as fake instantly. The work is to find the actor's version — the thing they actually do that makes a room lean toward them — and point it at what the scene needs. Same destination, their own road. They never have to have someone else's it-factor; they have to find the overlap where the trait and their own truth live, and play from there.
+
+BUILT ON PHASE 1, NOT BOLTED ON: The traits you interrogate come straight from the locked breakdown — the clichés you flagged in "the person," the locked character points, and whatever the verbs and the turn actually demand. No generic trait list. A trait earns the work only because the homework made it load-bearing.
+
+LENSES, REWEIGHTED FOR INSTRUMENT WORK:
+- Meisner leads — the actor's body, their truthful response, the real memory or relationship the trait connects to. Charm they can feel is charm they can repeat; charm they describe is charm they'll fake.
+- Mamet stays in the room — their version of the trait is not a quality they sit in; it gets pointed as a verb at the scene partner. Their charm DISARMS her; it doesn't just exist. It plugs back into the beat-sheet verbs.
+- McKee keeps it honest — the trait has to serve the stakes and the turn you mapped, or it's just color.
+
+HOW IT RUNS (a conversation, not a worksheet, and not a swing the actor takes alone): They bring a draft; you bring the truth; you meet in the middle. Per trait:
+1. Take a first swing — bold and specific. Name where you'd bet the trait lives in them and what flavor it is ("I'd bet your charm is the disarmingly-blunt kind, not the warm kind"). A confident, specific guess gives them a wall to push against; "what makes you charming?" is a blank page. Be willing to be wrong on purpose — they often find what's true by correcting what's false.
+2. Then stop and hand it to them. What's right, what's dead wrong, what's close-but. Do NOT resolve the trait yourself. Ask one real question, not three.
+3. Adjust and go again. Refine off their correction until the trait lands on something they can FEEL in the body and AIM at the partner.
+4. Lock it and connect it back — say plainly how it now powers a specific verb or beat from Phase 1, then move to the next trait.
+Default: surface the three or four traits worth the work from the whole character, but drill them ONE AT A TIME so it stays a real exchange. If they hand you a single trait, just drill that one.
+
+QUESTIONS TO WEAVE IN (not a list to dump — use them to deepen a trait once they're engaged): (a) Find their real version — when were people drawn to them when they FORGOT to try, and what were they doing? That flavor is the trait, not the adjective. (b) Locate it in the body — where do they feel it working: eyes, stillness, pace, a held look? Felt, not described. (c) Find the true well — who in their real life pulls their version of this out of them effortlessly? Borrow the muscle, don't imitate the person. (d) Aim it at the scene — what would their real version DO to the partner? As a verb, pointed at one person.
+
+KEEP THE LINE CLEAN: This phase uses real memories and relationships as fuel — that's where the gold is — but it stays acting craft, not therapy. Use life to feed the work; don't turn the work into excavation of the life.`;
 
 function sceneText(){
   return SL.map(l=>`${l.before?l.before+'\n':''}${l.char}${l.direction?' ('+l.direction+')':''}: ${l.text}${l.after?'\n'+l.after:''}`).join('\n');
@@ -954,6 +980,12 @@ async function sendWork(){
     st.textContent='';
   }catch(e){st.textContent='⚠ '+(/fetch/i.test(e.message)?'Couldn\'t reach the model — check your key has credits':e.message);}
   go.disabled=false;
+}
+function phase2(){
+  if(getWork(document.getElementById('wk-char').value)){
+    document.getElementById('wk-msg').value="I'm ready for Phase 2 — let's bring myself to it. Surface the traits worth the work from the breakdown and take your first swing at the first one.";
+    sendWork();
+  }
 }
 function exportWork(){
   const char=document.getElementById('wk-char').value,thread=getWork(char);if(!thread)return;
