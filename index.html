@@ -1038,12 +1038,21 @@ function pickMode(el){
 }
 // Build the ordered play plan (text segments + silences) for the current mode.
 function audioSegs(gap){
-  const segs=[];
+  // Ordered events first, then insert gaps: only a FULL pause between different
+  // speakers; a short breath within one character's back-to-back lines.
+  const raw=[];
   for(const l of SL){
     const mine=l.isMine,say=spokenText(l.text);
-    if(audioMode==='mine'){ if(mine&&say){segs.push({say});segs.push({sil:gap});} }
-    else if(audioMode==='reader'){ if(mine){segs.push({sil:estimateDur(say)+0.3});} else if(say){segs.push({say});segs.push({sil:gap});} }
-    else if(say){ segs.push({say});segs.push({sil:gap}); }
+    if(audioMode==='mine'){ if(mine&&say)raw.push({say,char:cleanChar(l.char)}); }
+    else if(audioMode==='reader'){ if(mine)raw.push({myGap:estimateDur(say)+0.3}); else if(say)raw.push({say,char:cleanChar(l.char)}); }
+    else if(say)raw.push({say,char:cleanChar(l.char)});
+  }
+  const segs=[];let prev=null;
+  for(const e of raw){
+    if(e.myGap!=null){segs.push({sil:e.myGap});prev=null;continue;}
+    if(prev!=null)segs.push({sil:prev===e.char?0.2:gap});
+    segs.push({say:e.say,char:e.char});
+    prev=e.char;
   }
   return segs;
 }
@@ -1097,7 +1106,7 @@ function readerVoice(){
   const ageDesc={teenage:'teenage',"young adult":'youthful, in their early twenties','middle-aged':'middle-aged','older':'older'}[age]||age;
   const youthHint=(age==='teenage'||age==='young adult')?' Keep it sounding genuinely young and light, not mature.':'';
   const instr=`You are an off-camera scene-partner reader for an actor's self-tape. Voice: a ${ageDesc} ${a} ${noun}.${youthHint} Read the lines FLAT and NEUTRAL — an even, relaxed table-read, NOT a performance. Do not act, emphasize emotion, dramatize, shout, cry, or play the scene. Keep a steady, natural, conversational pace and just give the cues plainly so the actor can play off them. Read only the spoken words; never read stage directions or anything in parentheses.`;
-  return {base,instr,sig:g+'|'+a+'|'+age+'|flat2'};
+  return {base,instr,sig:g+'|'+a+'|'+age+'|flat3g2'};
 }
 async function ttsBlob(text,voice,key,instr){
   const body={model:instr?'gpt-4o-mini-tts':'tts-1',input:text,voice};
@@ -1144,15 +1153,8 @@ async function makeAudio(){
     const voices=['nova','onyx','shimmer','echo','fable','alloy'];
     const chars=[...new Set(SL.map(l=>l.char))];
     const voiceFor=c=>voices[Math.max(0,chars.indexOf(c))%voices.length];
-    // Build the segment plan
-    const segs=[];
-    for(const l of SL){
-      const mine=l.isMine;
-      const say=spokenText(l.text);
-      if(audioMode==='mine'){ if(mine&&say){segs.push({text:say,voice:rv.base});segs.push({sil:gap});} }
-      else if(audioMode==='reader'){ if(mine){segs.push({sil:estimateDur(say)+0.3});} else if(say){segs.push({text:say,voice:rv.base});segs.push({sil:gap});} }
-      else if(say){ segs.push({text:say,voice:voiceFor(l.char)});segs.push({sil:gap}); }
-    }
+    // Build the plan (smart gaps), then assign a voice to each spoken segment.
+    const segs=audioSegs(gap).map(s=> s.sil!=null ? s : {text:s.say,voice:audioMode==='both'?voiceFor(s.char):rv.base});
     const todo=segs.filter(s=>s.text).length;
     if(!todo){st.textContent='Nothing to generate for this option.';go.disabled=false;return;}
     const decoded=[];let done=0;
