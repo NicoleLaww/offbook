@@ -699,10 +699,15 @@ async function parseImageLLM(dataUrl){
 // Shared bits: greyed scene-action context, and the parenthetical cue chip.
 function ctxHtml(t){return t?`<div class="ctx">${esc(t)}</div>`:'';}
 function dirHtml(d){return d?` <span class="dir">(${esc(d)})</span>`:'';}
-function metaHtml(l,p){return `${ctxHtml(l.before)}<div class="${p}-meta">${esc(l.char)}${dirHtml(l.direction)}</div><div class="${p}-text">${esc(l.text)}</div>${ctxHtml(l.after)}`;}
+// Give each character a stable color so you can tell who's speaking at a glance.
+const CHAR_COLORS=['#a78bfa','#4ade80','#fbbf24','#60a5fa','#f472b6','#2dd4bf','#fb923c','#f87171'];
+let _charMap={};
+function charColor(c){const k=(c||'').toUpperCase();if(!(k in _charMap))_charMap[k]=CHAR_COLORS[Object.keys(_charMap).length%CHAR_COLORS.length];return _charMap[k];}
+function metaHtml(l,p){return `${ctxHtml(l.before)}<div class="${p}-meta" style="color:${charColor(l.char)}">${esc(l.char)}${dirHtml(l.direction)}</div><div class="${p}-text">${esc(l.text)}</div>${ctxHtml(l.after)}`;}
 
 // SCRIPT VIEW
 function buildScript(){
+  _charMap={};
   const c=document.getElementById('slines');c.innerHTML='';
   SL.forEach(l=>{
     const el=document.createElement('div');
