@@ -1151,11 +1151,11 @@ async function makeAudio(){
     const decoded=[];let done=0;
     for(const s of segs){
       if(s.sil!=null){decoded.push({len:Math.round(s.sil*sr)});continue;}
-      st.textContent=`Generating voice ${++done}/${todo}…`;
+      st.textContent=`Recording line ${++done} of ${todo}…`;
       const ab=await ac.decodeAudioData(await (await ttsBlob(s.text,s.voice,oai,rv.instr)).arrayBuffer());
       decoded.push({data:ab.getChannelData(0)});
     }
-    st.textContent='Stitching the track…';
+    st.textContent='Putting the track together…';
     let total=0;for(const d of decoded)total+=d.data?d.data.length:d.len;
     const out=new Float32Array(total);let off=0;
     for(const d of decoded){if(d.data){out.set(d.data,off);off+=d.data.length;}else off+=d.len;}
