@@ -131,8 +131,19 @@
   #done-screen h2{font-family:'Syne',sans-serif;font-weight:800;font-size:48px;margin-bottom:12px;color:var(--green);}
   #done-screen p{color:var(--muted);margin-bottom:32px;}
   .score{font-family:'Syne',sans-serif;font-size:20px;margin-bottom:40px;}
-  #audio-modal{position:fixed;inset:0;z-index:400;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;padding:20px;}
-  #audio-modal.show{display:flex;}
+  #audio-modal,#work-modal{position:fixed;inset:0;z-index:400;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;padding:20px;}
+  #audio-modal.show,#work-modal.show{display:flex;}
+  .wk-l{display:block;font-size:12px;color:var(--text);margin:14px 0 6px;}
+  .wk-opt{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.05em;margin-left:4px;}
+  #work-modal select,#work-modal textarea{width:100%;background:var(--s2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Mono',monospace;font-size:13px;padding:10px;line-height:1.5;}
+  #work-modal textarea{resize:vertical;}
+  .wk-out{margin-top:16px;font-size:14px;line-height:1.7;color:var(--text);white-space:normal;}
+  .wk-out:empty{display:none;}
+  .wk-out h4{font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);margin:18px 0 6px;}
+  .wk-out b{color:var(--amber);}
+  .wk-out ul{margin:6px 0 6px 18px;}
+  .wk-out li{margin-bottom:4px;}
+  .wk-out p{margin-bottom:10px;}
   .am-card{position:relative;background:#161616;border:1px solid var(--border);border-radius:14px;padding:26px 22px;width:100%;max-width:460px;box-shadow:0 20px 60px rgba(0,0,0,.7);max-height:90vh;overflow:auto;}
   .am-h{font-family:'Syne',sans-serif;font-weight:800;font-size:20px;margin-bottom:4px;}
   .am-sub{font-size:12px;color:var(--muted);margin-bottom:18px;line-height:1.6;}
@@ -230,10 +241,29 @@
     <div class="bot-info"><strong id="mcount">0</strong> lines selected</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
       <button class="ghost" onclick="clearMine()">Clear</button>
+      <button class="ghost" id="workbtn" onclick="openWork()">🎬 Scene Work</button>
       <button class="ghost" id="audiobtn" onclick="openAudio()" disabled>🎧 Make Audio</button>
       <button class="ghost" id="readbtn" onclick="goRead()" disabled style="border-color:var(--accent);color:var(--accent);">Read Through</button>
       <button class="big" id="rehbtn" onclick="goReh()" disabled>REHEARSE →</button>
     </div>
+  </div>
+</div>
+
+<!-- SCENE WORK -->
+<div id="work-modal">
+  <div class="am-card" style="max-width:580px">
+    <button class="cmp-x" onclick="closeWork()" aria-label="Close">✕</button>
+    <h3 class="am-h">Scene work</h3>
+    <div class="am-sub">A craft breakdown you can step into — the person, the spine, the beats and verbs, what to watch.</div>
+    <label class="wk-l">I'm playing</label>
+    <select id="wk-char"></select>
+    <label class="wk-l">Casting / character breakdown <span class="wk-opt">optional</span></label>
+    <textarea id="wk-brk" rows="3" placeholder="Paste the casting breakdown or character description…"></textarea>
+    <label class="wk-l">Your instinct <span class="wk-opt">optional</span></label>
+    <textarea id="wk-inst" rows="2" placeholder="Any read you already have…"></textarea>
+    <button class="big" id="wk-go" onclick="makeBreakdown()" style="width:100%;margin-top:6px">BREAK IT DOWN</button>
+    <div class="am-status" id="wk-status"></div>
+    <div id="wk-out" class="wk-out"></div>
   </div>
 </div>
 
@@ -776,6 +806,94 @@ function updCount(){
   document.getElementById('readbtn').disabled=n===0;
   const ab=document.getElementById('audiobtn');if(ab)ab.disabled=n===0;
   saveCurrent();
+}
+
+// ===== SCENE WORK (craft breakdown) =====
+const CRAFT_PROMPT=`You are doing an actor's script work. You apply three craft lenses — Mamet's action/verb, Meisner's moment-to-moment truth, and McKee's value-and-structure — as ONE synthesized voice. The actor pastes in a scene (sides/script) and a character or casting breakdown and tells you who they're playing. You hand back a breakdown they can step straight into.
+
+THE ONE RULE: Synthesize, never debate. Never write "Mamet would say… but McKee counters…", never assign lines to named voices, never present competing skeletons and ask the actor to choose. You have the argument internally and deliver one clean answer. If two lenses conflict on a specific choice, pick the more playable one (the verb usually wins ties) and move on. The actor is an advanced practitioner — talk to them like a peer, warm and direct, no theory for its own sake.
+
+THE THREE LENSES (tools, not characters — use all three every scene):
+- THE VERB (what you're DOING). Every beat gets one transitive verb aimed at the scene partner: to hook her, to trap her, to break her. Not a mood, adjective, or result. "Scary"/"triumphant" are banned in the margin. Test: could you do it to a person? One target — the partner; everything else is weather. When a verb stops working, do it harder or switch verbs — never retreat.
+- THE EYES (what you're WATCHING). Pair every verb with whose face the actor reads and what they're looking for — the data that tells them if the verb is landing, moment to moment, so they react to what's there, not their plan. Name the emotional preparation: what to walk in already carrying before the first line. Never tell them to "play not-knowing" or "play ambiguity" — not playable.
+- THE STRUCTURE (what's at STAKE, where it TURNS). Name the value as a charged pair (locked-out -> owns-the-room). Mark the opening value, the turn/climax, and the gaps — where the character expects one thing and gets another, because that's where the verb escalates or pivots. Keep it light in the beat sheet: the map, not the performance.
+
+BEFORE BUILDING, ask only what you need (one or two sharp questions, never an interview): the actual sides if only a description was given; which character; what the scene partner gives (the scene is reactive); genre/tone/casting context for register; the actor's own instinct if they have one. Don't run a Socratic drill — get what you need and go. If you have the scene and the character, GO — do not ask questions you can answer from the text.
+
+OUTPUT (conversational prose; bullets only for real lists; bold the verbs with **double asterisks**; use ## headers for the five sections):
+1. THE PERSON — who they are with the casting-breakdown clichés stripped off. Name the clichés, then get underneath to a survival logic rooted in the actor's truthful response. Name the traps (readings that send an actor into their head — usually "play the wound/insecurity/backstory") and what to play instead (the want, the action).
+2. THE SPINE — one sentence: the through-line action, aimed at the partner.
+3. WHAT'S LOCKED — bulleted givens, grouped: Character / Scene (the engine: what's the obstacle, what's it fuel for; the stakes; the turn; anything premeditated) / World (genre/tone/register).
+4. THE BEATS — one per beat: "Beat N — [what happens]. Verb: to **[transitive verb]**. [The action aimed at the partner, plus the gap if one opens — expected X, got Y, so the verb escalates/pivots.] Watch: [whose face, what you're reading, what it tells you next.]"
+5. WHAT TO CHASE NEXT — two or three threads (fatal flaw, what the partner gives, a moment for rehearsal). Offer to take one; don't dump all.
+
+CRAFT RULES: Verbs are transitive and aimed at one person — the room is leverage, the partner is the mark. Resistance is fuel, not obstacle. Don't play psychology, the wound, or the result. Commit to the action fully and let the audience hold any ambiguity. Preparation lives before the first line. The line comes out of the partner's behavior, not the plan. Grounded genres get no telegraphing.`;
+
+function sceneText(){
+  return SL.map(l=>`${l.before?l.before+'\n':''}${l.char}${l.direction?' ('+l.direction+')':''}: ${l.text}${l.after?'\n'+l.after:''}`).join('\n');
+}
+function openWork(){
+  if(!SL.length)return;
+  const sel=document.getElementById('wk-char');
+  const chars=[...new Set(SL.map(l=>l.char))];
+  const mineChar=(SL.find(l=>l.isMine)||{}).char;
+  sel.innerHTML=chars.map(c=>`<option${c===mineChar?' selected':''}>${esc(c)}</option>`).join('');
+  document.getElementById('wk-status').textContent='';
+  document.getElementById('wk-out').innerHTML='';
+  document.getElementById('work-modal').classList.add('show');
+}
+function closeWork(){document.getElementById('work-modal').classList.remove('show');}
+// minimal markdown -> safe HTML (## headers, **bold**, - bullets, paragraphs)
+function mdToHtml(md){
+  const lines=esc(md||'').split('\n');let html='',inUl=false;
+  const ib=s=>s.replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>');
+  for(let raw of lines){
+    const t=raw.trim();
+    if(/^#{1,6}\s/.test(t)){if(inUl){html+='</ul>';inUl=false;}html+='<h4>'+ib(t.replace(/^#{1,6}\s/,''))+'</h4>';continue;}
+    if(/^[-*]\s/.test(t)){if(!inUl){html+='<ul>';inUl=true;}html+='<li>'+ib(t.replace(/^[-*]\s/,''))+'</li>';continue;}
+    if(inUl){html+='</ul>';inUl=false;}
+    if(t)html+='<p>'+ib(t)+'</p>';
+  }
+  if(inUl)html+='</ul>';
+  return html;
+}
+async function craftLLM(system,user){
+  if(uploadRoute==='free'){
+    if(!gemKey)throw new Error('Public mode needs a free Gemini key.');
+    const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+encodeURIComponent(gemKey),{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({system_instruction:{parts:[{text:system}]},contents:[{parts:[{text:user}]}],
+        safetySettings:['HARM_CATEGORY_HARASSMENT','HARM_CATEGORY_HATE_SPEECH','HARM_CATEGORY_SEXUALLY_EXPLICIT','HARM_CATEGORY_DANGEROUS_CONTENT'].map(c=>({category:c,threshold:'BLOCK_NONE'}))})
+    });
+    if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error((e.error&&e.error.message)||('Gemini '+r.status));}
+    const d=await r.json();
+    return (((d.candidates||[])[0]||{}).content||{}).parts&&d.candidates[0].content.parts[0].text||'';
+  }
+  if(!oai)throw new Error('Confidential mode needs your OpenAI key.');
+  const r=await fetch('https://api.openai.com/v1/chat/completions',{
+    method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+oai},
+    body:JSON.stringify({model:'gpt-4o',max_tokens:2000,messages:[{role:'system',content:system},{role:'user',content:user}]})
+  });
+  if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error((e.error&&e.error.message)||('OpenAI '+r.status));}
+  const d=await r.json();
+  return d.choices[0].message.content||'';
+}
+async function makeBreakdown(){
+  const go=document.getElementById('wk-go'),st=document.getElementById('wk-status'),out=document.getElementById('wk-out');
+  const char=document.getElementById('wk-char').value;
+  const brk=document.getElementById('wk-brk').value.trim();
+  const inst=document.getElementById('wk-inst').value.trim();
+  go.disabled=true;out.innerHTML='';st.textContent='Working the scene…';
+  try{
+    const user=`I'm playing: ${char}\n`+
+      (brk?`Casting / character breakdown:\n${brk}\n`:'')+
+      (inst?`My instinct:\n${inst}\n`:'')+
+      `\nThe scene:\n${sceneText()}`;
+    const txt=await craftLLM(CRAFT_PROMPT,user);
+    out.innerHTML=mdToHtml(txt);
+    st.textContent='';
+  }catch(e){st.textContent='⚠ '+(/fetch/i.test(e.message)?'Couldn\'t reach the model — check your key has credits':e.message);}
+  go.disabled=false;
 }
 
 // ===== PRACTICE AUDIO EXPORT =====
