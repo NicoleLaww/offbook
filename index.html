@@ -1101,13 +1101,15 @@ function readerVoice(){
   const g=(document.getElementById('rv-g')||{}).value||'female';
   const a=(document.getElementById('rv-a')||{}).value||'American';
   const age=(document.getElementById('rv-age')||{}).value||'young adult';
-  // tts-1 is naturally FLAT — it doesn't act. Map the picker to its closest
-  // voice (no "instructions", so the model can't dramatize). nova = natural,
-  // youngish American female; onyx/echo male; alloy neutral; fable British-ish.
+  // Use the more natural-sounding model, but steer it to CASUAL not theatrical:
+  // "reading aloud to a friend" reads human without the over-acting.
   const base = g==='male' ? (a==='British'?'fable':'onyx')
              : g==='neutral' ? 'alloy'
-             : 'nova';
-  return {base,instr:'',sig:g+'|'+a+'|'+age+'|nat1'};
+             : 'coral';
+  const noun = g==='male'?'man':g==='neutral'?'person':'woman';
+  const ageDesc={teenage:'teenage',"young adult":'in their early twenties','middle-aged':'in their forties','older':'older'}[age]||age;
+  const instr=`Speak like a relaxed, natural ${a} ${noun} ${ageDesc}, casually reading lines aloud to help a friend run their scene. Easygoing, conversational, human — plain everyday speech at a normal pace. Do NOT perform, act, or dramatize: no theatrical or emotional emphasis, no big swings, no character voices. Just say the words simply and naturally, the way you'd read a text message out loud.`;
+  return {base,instr,sig:g+'|'+a+'|'+age+'|nat2'};
 }
 async function ttsBlob(text,voice,key,instr){
   const body={model:instr?'gpt-4o-mini-tts':'tts-1',input:text,voice};
