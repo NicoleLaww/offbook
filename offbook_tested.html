@@ -592,6 +592,7 @@ async function doPDF(file){
     for(const l of lines){
       if(l&&l.action){pendAction=(pendAction+' '+l.action).trim();continue;}
       if(!l||(!l.char&&!l.text))continue;
+      if(l.char)l.char=cleanChar(l.char);  // "PORTIA (CONT'D)" -> "PORTIA"
       const prev=merged[merged.length-1];
       if(prev&&prev.char===l.char&&!pendAction){
         prev.text=(prev.text+' '+l.text).trim();
@@ -675,7 +676,7 @@ IGNORE any faint diagonal watermark text, the vertical "Sides by Breakdown Servi
 Return a JSON object with a single key "lines" containing an array.
 Each element is EITHER spoken dialogue: {"char":"CHARACTER NAME","direction":"parenthetical cue or empty string","text":"dialogue text"}
 OR a scene action/description that is NOT spoken aloud (e.g. "She turns away."): {"action":"the description text"}
-Keep dialogue and action elements in their original order.
+Keep dialogue and action elements in their original order. CRITICAL: scene action/description (narration of what happens or what someone does — e.g. "There's a stand-off. Tension, knife.") is its OWN {"action":...} element. NEVER append it to a character's dialogue text. A character's "text" is ONLY the words they speak aloud. Also: a character cue like "PORTIA (CONT'D)" — put just "PORTIA" in char, drop the (CONT'D).
 
 STRICT rules:
 - char must be ALL CAPS, no parentheticals
@@ -722,7 +723,7 @@ async function parseWithGPT(chunk){
 Return a JSON object with a single key "lines" containing an array.
 Each element is EITHER spoken dialogue: {"char":"CHARACTER NAME","direction":"parenthetical cue or empty string","text":"dialogue text"}
 OR a scene action/description that is NOT spoken aloud (e.g. "She turns away."): {"action":"the description text"}
-Keep dialogue and action elements in their original order.
+Keep dialogue and action elements in their original order. CRITICAL: scene action/description (narration of what happens or what someone does — e.g. "There's a stand-off. Tension, knife.") is its OWN {"action":...} element. NEVER append it to a character's dialogue text. A character's "text" is ONLY the words they speak aloud. Also: a character cue like "PORTIA (CONT'D)" — put just "PORTIA" in char, drop the (CONT'D).
 
 STRICT rules:
 - char must be ALL CAPS, no parentheticals (e.g. "KATIE YEOH" not "KATIE YEOH (ON SCREEN)")
@@ -757,6 +758,7 @@ const GEMINI_RULES=`You are a screenplay parser. Extract the dialogue AND the sc
 Return ONLY a JSON object with a single key "lines" — an array where each element is
 EITHER dialogue {"char":"CHARACTER NAME","direction":"parenthetical or empty","text":"dialogue text"}
 OR scene action/description (not spoken aloud) {"action":"the description text"}.
+CRITICAL: never append action/narration to a character's spoken text — a "text" is ONLY the words spoken aloud; description is its own {"action"} element. Put just "PORTIA" in char, not "PORTIA (CONT'D)".
 Rules: char ALL CAPS, no parentheticals (put "(V.O.)" etc. in direction); one object per speech;
 exclude scene headings (INT./EXT.), page numbers, revision marks, watermarks; keep everything in order.`;
 function cleanGemErr(status,msg){
@@ -800,12 +802,15 @@ async function parseImageLLM(dataUrl){
 
 // Shared bits: greyed scene-action context, and the parenthetical cue chip.
 function ctxHtml(t){return t?`<div class="ctx">${esc(t)}</div>`:'';}
-function dirHtml(d){return d?` <span class="dir">(${esc(d)})</span>`:'';}
+// Strip a trailing parenthetical from a character name ("PORTIA (CONT'D)" -> "PORTIA")
+// so continued lines are the SAME character (one color, one selection).
+function cleanChar(c){return (c||'').replace(/\s*\([^)]*\)\s*$/,'').replace(/\s+/g,' ').trim();}
+function dirHtml(d){const t=(d||'').replace(/^[\s(]+/,'').replace(/[\s)]+$/,'').trim();return t?` <span class="dir">(${esc(t)})</span>`:'';}
 // Give each character a stable color so you can tell who's speaking at a glance.
 const CHAR_COLORS=['#a78bfa','#4ade80','#fbbf24','#60a5fa','#f472b6','#2dd4bf','#fb923c','#f87171'];
 let _charMap={};
-function charColor(c){const k=(c||'').toUpperCase();if(!(k in _charMap))_charMap[k]=CHAR_COLORS[Object.keys(_charMap).length%CHAR_COLORS.length];return _charMap[k];}
-function metaHtml(l,p){return `${ctxHtml(l.before)}<div class="${p}-meta" style="color:${charColor(l.char)}">${esc(l.char)}${dirHtml(l.direction)}</div><div class="${p}-text">${esc(l.text)}</div>${ctxHtml(l.after)}`;}
+function charColor(c){const k=cleanChar(c).toUpperCase();if(!(k in _charMap))_charMap[k]=CHAR_COLORS[Object.keys(_charMap).length%CHAR_COLORS.length];return _charMap[k];}
+function metaHtml(l,p){return `${ctxHtml(l.before)}<div class="${p}-meta" style="color:${charColor(l.char)}">${esc(cleanChar(l.char))}${dirHtml(l.direction)}</div><div class="${p}-text">${esc(l.text)}</div>${ctxHtml(l.after)}`;}
 
 // SCRIPT VIEW
 function buildScript(){
