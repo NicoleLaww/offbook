@@ -437,6 +437,18 @@ dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('over');}
 dz.addEventListener('dragleave',()=>dz.classList.remove('over'));
 dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('over');doPDF(e.dataTransfer.files[0]);});
 
+// Protected/scanned pages need vision OCR (the part that costs money). Ask first.
+function askOCR(n){
+  return new Promise(res=>{
+    const up=document.getElementById('upst');
+    up.innerHTML=`This script's text is protected or scanned — <strong>${n} page${n>1?'s':''}</strong> need image reading (OCR), about <strong>${n}¢</strong> on your OpenAI key. `+
+      `<button class="ghost" id="ocr-yes" style="margin:8px 6px 0">Read with OCR</button>`+
+      `<button class="ghost" id="ocr-no" style="margin:8px 6px 0">Skip</button>`;
+    document.getElementById('ocr-yes').onclick=()=>res(true);
+    document.getElementById('ocr-no').onclick=()=>res(false);
+  });
+}
+
 async function doPDF(file){
   if(!file){return;}
   // Accept by extension too — some phones report an empty/odd MIME for valid PDFs.
@@ -451,21 +463,35 @@ async function doPDF(file){
     document.getElementById('upst').innerHTML='<span class="spin"></span>Reading PDF...';
     const pages = await extractPDFPages(file);
     let lines = [];
-    for(const p of pages){
+    const pageResults = new Array(pages.length).fill(null);
+    const needOCR = [];
+    // Phase 1 — cheap text read. Flag pages whose text is missing or
+    // scrambled/protected (lots of chars but no dialogue) for OCR.
+    for(let i=0;i<pages.length;i++){
+      const p=pages[i];
       const hasText = p.text.trim().length >= 40;
-      document.getElementById('upst').innerHTML=`<span class="spin"></span>Reading page ${p.num}/${pages.length}${hasText?'':' (scanned — using vision)'}...`;
-      let part = hasText ? await parseTextLLM(p.text) : await parseImageLLM(await pageToImage(p.page));
-      // Fallback: a page with lots of text but ~no dialogue means the text layer
-      // is scrambled/watermarked (e.g. Actors Access "Sides"). Read the image instead.
-      if(hasText && (!part||part.length<2) && p.text.trim().length>200){
-        document.getElementById('upst').innerHTML=`<span class="spin"></span>Reading page ${p.num}/${pages.length} (protected — using vision)...`;
-        const vis = await parseImageLLM(await pageToImage(p.page));
-        if(vis&&vis.length) part = vis;
-      }
-      if(part&&part.length)lines=lines.concat(part);
+      if(!hasText){ needOCR.push(i); continue; }
+      document.getElementById('upst').innerHTML=`<span class="spin"></span>Reading page ${p.num}/${pages.length}...`;
+      const part = await parseTextLLM(p.text);
+      if((!part||part.length<2) && p.text.trim().length>200){ needOCR.push(i); }
+      else { pageResults[i] = part||[]; }
     }
+    // Phase 2 — OCR is the part that costs money, so ask first.
+    if(needOCR.length){
+      const ok = await askOCR(needOCR.length);
+      if(ok){
+        for(const i of needOCR){
+          const p=pages[i];
+          document.getElementById('upst').innerHTML=`<span class="spin"></span>Reading page ${p.num}/${pages.length} (OCR)...`;
+          pageResults[i] = await parseImageLLM(await pageToImage(p.page)) || [];
+        }
+      }
+    }
+    for(const r of pageResults){ if(r&&r.length) lines=lines.concat(r); }
     if(!lines||!lines.length){
-      document.getElementById('uperr').textContent='No dialogue found in this script.';
+      document.getElementById('uperr').textContent = needOCR.length
+        ? 'This script is protected — re-upload and choose "Read with OCR" to get the lines.'
+        : 'No dialogue found in this script.';
       document.getElementById('upst').textContent='';
       return;
     }
@@ -738,12 +764,24 @@ function encodeWAV(samples,sr){
   let off=44;for(let i=0;i<samples.length;i++){const s=Math.max(-1,Math.min(1,samples[i]));v.setInt16(off,s<0?s*0x8000:s*0x7FFF,true);off+=2;}
   return new Blob([v],{type:'audio/wav'});
 }
+// Cache generated tracks (IndexedDB) so the same settings don't re-charge TTS.
+function idbOpen(){return new Promise((res,rej)=>{const r=indexedDB.open('offbook',1);r.onupgradeneeded=()=>{if(!r.result.objectStoreNames.contains('audio'))r.result.createObjectStore('audio');};r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});}
+async function idbGet(k){try{const db=await idbOpen();return await new Promise(res=>{const t=db.transaction('audio').objectStore('audio').get(k);t.onsuccess=()=>res(t.result||null);t.onerror=()=>res(null);});}catch(e){return null;}}
+async function idbSet(k,v){try{const db=await idbOpen();await new Promise(res=>{const t=db.transaction('audio','readwrite').objectStore('audio').put(v,k);t.onsuccess=()=>res();t.onerror=()=>res();});}catch(e){}}
+function dlBlob(blob,fname){const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=fname;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),4000);}
+
 async function makeAudio(){
   if(!oai){document.getElementById('am-status').textContent='Add your OpenAI key (the voices use TTS).';return;}
   const gap=parseFloat(document.getElementById('gap').value)||0.8;
   const go=document.getElementById('am-go'),st=document.getElementById('am-status');
+  const names={reader:'reader-track',mine:'my-lines',both:'full-scene'};
+  const fname=(curName?curName.replace(/\.pdf$/i,''):'offbook')+'_'+names[audioMode]+'.wav';
+  const mineSig=SL.filter(l=>l.isMine).map(l=>l.id).join('.');
+  const key=(curName||'demo')+'|'+audioMode+'|'+gap+'|'+SL.length+'|'+mineSig;
   go.disabled=true;
   try{
+    const cached=await idbGet(key);
+    if(cached){dlBlob(cached,fname);st.textContent='✓ Reused saved audio — no charge';go.disabled=false;return;}
     const ac=new (window.AudioContext||window.webkitAudioContext)();
     if(ac.state==='suspended')await ac.resume();
     const sr=ac.sampleRate;
@@ -772,12 +810,9 @@ async function makeAudio(){
     const out=new Float32Array(total);let off=0;
     for(const d of decoded){if(d.data){out.set(d.data,off);off+=d.data.length;}else off+=d.len;}
     const wav=encodeWAV(out,sr);
-    const names={reader:'reader-track',mine:'my-lines',both:'full-scene'};
-    const fname=(curName?curName.replace(/\.pdf$/i,''):'offbook')+'_'+names[audioMode]+'.wav';
-    const url=URL.createObjectURL(wav);
-    const a=document.createElement('a');a.href=url;a.download=fname;document.body.appendChild(a);a.click();a.remove();
-    setTimeout(()=>URL.revokeObjectURL(url),4000);
-    st.textContent='✓ Downloaded '+fname;
+    await idbSet(key,wav);
+    dlBlob(wav,fname);
+    st.textContent='✓ Saved & downloaded '+fname;
   }catch(e){st.textContent='⚠ '+(/fetch/i.test(e.message)?'Couldn\'t reach OpenAI — check your key has credits':e.message);}
   go.disabled=false;
 }
