@@ -311,7 +311,11 @@
     <div class="am-gap">Pause between lines: <strong id="gaplabel">0.8s</strong>
       <input type="range" id="gap" min="0.3" max="3" step="0.1" value="0.8" oninput="document.getElementById('gaplabel').textContent=this.value+'s'">
     </div>
-    <button class="big" id="am-go" onclick="makeAudio()" style="width:100%;margin-top:6px">GENERATE</button>
+    <div style="display:flex;gap:8px;margin-top:6px">
+      <button class="ghost" id="am-play" onclick="playFree()" style="flex:1">▶ Play (free)</button>
+      <button class="big" id="am-go" onclick="makeAudio()" style="flex:1">⬇ Download</button>
+    </div>
+    <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.5">Play uses your device's free voice. Download uses OpenAI (saved file, costs a few cents).</div>
     <div class="am-status" id="am-status"></div>
   </div>
 </div>
@@ -1012,10 +1016,56 @@ function openAudio(){
   document.getElementById('am-status').textContent='';
   document.getElementById('audio-modal').classList.add('show');
 }
-function closeAudio(){document.getElementById('audio-modal').classList.remove('show');}
+function closeAudio(){stopFree();document.getElementById('audio-modal').classList.remove('show');}
 function pickMode(el){
   audioMode=el.dataset.mode;
   document.querySelectorAll('.am-opt').forEach(o=>o.classList.toggle('on',o===el));
+}
+// Build the ordered play plan (text segments + silences) for the current mode.
+function audioSegs(gap){
+  const segs=[];
+  for(const l of SL){
+    const mine=l.isMine,say=spokenText(l.text);
+    if(audioMode==='mine'){ if(mine&&say){segs.push({say});segs.push({sil:gap});} }
+    else if(audioMode==='reader'){ if(mine){segs.push({sil:estimateDur(say)+0.3});} else if(say){segs.push({say});segs.push({sil:gap});} }
+    else if(say){ segs.push({say});segs.push({sil:gap}); }
+  }
+  return segs;
+}
+// Pick a device voice matching the chosen gender/accent (free, no API).
+function pickBrowserVoice(){
+  const g=(document.getElementById('rv-g')||{}).value||'female';
+  const a=(document.getElementById('rv-a')||{}).value||'American';
+  const vs=(window.speechSynthesis&&speechSynthesis.getVoices())||[];
+  const lang=a==='British'?'en-GB':a==='Australian'?'en-AU':'en-US';
+  const fem=/female|samantha|victoria|karen|moira|tessa|fiona|serena|zoe|allison|ava/i;
+  const masc=/male|daniel|alex|fred|aaron|arthur|oliver|tom/i;
+  return vs.find(v=>v.lang===lang&&(g==='female'?fem:g==='male'?masc:/.*/).test(v.name))
+    ||vs.find(v=>v.lang===lang)||vs.find(v=>v.lang&&v.lang.startsWith('en'))||vs[0];
+}
+let _playing=false;
+function stopFree(){_playing=false;try{speechSynthesis.cancel();}catch(e){}const b=document.getElementById('am-play');if(b)b.textContent='▶ Play (free)';}
+function playFree(){
+  if(_playing){stopFree();return;}
+  if(!('speechSynthesis' in window)){document.getElementById('am-status').textContent='This browser has no built-in voice.';return;}
+  const gap=parseFloat(document.getElementById('gap').value)||0.8;
+  const v=pickBrowserVoice();
+  const segs=audioSegs(gap);
+  if(!segs.some(s=>s.say)){document.getElementById('am-status').textContent='Nothing to play for this option.';return;}
+  _playing=true;
+  document.getElementById('am-play').textContent='■ Stop';
+  document.getElementById('am-status').textContent='Playing…';
+  let i=0;
+  (function next(){
+    if(!_playing){return;}
+    if(i>=segs.length){stopFree();document.getElementById('am-status').textContent='';return;}
+    const s=segs[i++];
+    if(s.sil!=null){setTimeout(next,s.sil*1000);return;}
+    const u=new SpeechSynthesisUtterance(s.say);
+    if(v)u.voice=v; u.rate=0.98;
+    u.onend=next; u.onerror=next;
+    speechSynthesis.speak(u);
+  })();
 }
 // ~speaking time of a line, so the reader track leaves room for you to say it
 function estimateDur(t){const w=(t||'').trim().split(/\s+/).filter(Boolean).length;return Math.max(1.2,w*0.38+0.5);}
