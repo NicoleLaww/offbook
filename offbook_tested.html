@@ -137,13 +137,17 @@
   .wk-opt{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.05em;margin-left:4px;}
   #work-modal select,#work-modal textarea{width:100%;background:var(--s2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Mono',monospace;font-size:13px;padding:10px;line-height:1.5;}
   #work-modal textarea{resize:vertical;}
-  .wk-out{margin-top:16px;font-size:14px;line-height:1.7;color:var(--text);white-space:normal;}
+  .wk-out{margin-top:14px;font-size:14px;line-height:1.7;color:var(--text);overflow-y:auto;flex:1;min-height:0;}
   .wk-out:empty{display:none;}
   .wk-out h4{font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);margin:18px 0 6px;}
-  .wk-out b{color:var(--amber);}
-  .wk-out ul{margin:6px 0 6px 18px;}
-  .wk-out li{margin-bottom:4px;}
-  .wk-out p{margin-bottom:10px;}
+  .wk-msg-a{margin-bottom:14px;}
+  .wk-msg-a b{color:var(--amber);}
+  .wk-msg-a ul{margin:6px 0 6px 18px;}
+  .wk-msg-a li{margin-bottom:4px;}
+  .wk-msg-a p{margin-bottom:10px;}
+  .wk-msg-u{background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:8px 12px;margin:0 0 14px auto;max-width:85%;font-size:13px;color:var(--muted);width:fit-content;}
+  #work-modal #wk-msg{width:100%;background:var(--s2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Mono',monospace;font-size:13px;padding:10px;line-height:1.5;resize:vertical;}
+  .wk-actions{display:flex;gap:8px;margin-top:10px;align-items:center;}
   .am-card{position:relative;background:#161616;border:1px solid var(--border);border-radius:14px;padding:26px 22px;width:100%;max-width:460px;box-shadow:0 20px 60px rgba(0,0,0,.7);max-height:90vh;overflow:auto;}
   .am-h{font-family:'Syne',sans-serif;font-weight:800;font-size:20px;margin-bottom:4px;}
   .am-sub{font-size:12px;color:var(--muted);margin-bottom:18px;line-height:1.6;}
@@ -251,19 +255,28 @@
 
 <!-- SCENE WORK -->
 <div id="work-modal">
-  <div class="am-card" style="max-width:580px">
+  <div class="am-card" style="max-width:580px;display:flex;flex-direction:column;max-height:90vh">
     <button class="cmp-x" onclick="closeWork()" aria-label="Close">✕</button>
     <h3 class="am-h">Scene work</h3>
-    <div class="am-sub">A craft breakdown you can step into — the person, the spine, the beats and verbs, what to watch.</div>
+    <div class="am-sub">A breakdown you can step into — then keep working it in conversation. Saved with the script.</div>
     <label class="wk-l">I'm playing</label>
-    <select id="wk-char"></select>
-    <label class="wk-l">Casting / character breakdown <span class="wk-opt">optional</span></label>
-    <textarea id="wk-brk" rows="3" placeholder="Paste the casting breakdown or character description…"></textarea>
-    <label class="wk-l">Your instinct <span class="wk-opt">optional</span></label>
-    <textarea id="wk-inst" rows="2" placeholder="Any read you already have…"></textarea>
-    <button class="big" id="wk-go" onclick="makeBreakdown()" style="width:100%;margin-top:6px">BREAK IT DOWN</button>
-    <div class="am-status" id="wk-status"></div>
+    <select id="wk-char" onchange="loadThread()"></select>
+    <div id="wk-setup">
+      <label class="wk-l">Casting / character breakdown <span class="wk-opt">optional</span></label>
+      <textarea id="wk-brk" rows="2" placeholder="Paste the casting breakdown or character description…"></textarea>
+      <label class="wk-l">Your instinct <span class="wk-opt">optional</span></label>
+      <textarea id="wk-inst" rows="2" placeholder="Any read you already have…"></textarea>
+    </div>
     <div id="wk-out" class="wk-out"></div>
+    <div id="wk-followup" style="display:none">
+      <textarea id="wk-msg" rows="2" placeholder="Ask a follow-up — e.g. take me through beat 3, or the fatal flaw…"></textarea>
+    </div>
+    <div class="wk-actions">
+      <button class="big" id="wk-go" onclick="sendWork()" style="flex:1">BREAK IT DOWN</button>
+      <button class="ghost" id="wk-export" onclick="exportWork()" style="display:none">Export</button>
+      <button class="ghost" id="wk-reset" onclick="resetWork()" style="display:none">Start over</button>
+    </div>
+    <div class="am-status" id="wk-status"></div>
   </div>
 </div>
 
@@ -419,9 +432,11 @@ function loadSaved(){try{return JSON.parse(localStorage.getItem('offbook_scripts
 function writeSaved(arr){try{localStorage.setItem('offbook_scripts',JSON.stringify(arr));}catch(e){}}
 function saveCurrent(){
   if(!curName||!SL.length)return;
-  const arr=loadSaved().filter(s=>s.name!==curName);
-  arr.unshift({name:curName,lines:SL.map(l=>({char:l.char,direction:l.direction,text:l.text,isMine:!!l.isMine}))});
-  writeSaved(arr.slice(0,30));
+  const arr=loadSaved();
+  const work=(arr.find(s=>s.name===curName)||{}).work||{};
+  const rest=arr.filter(s=>s.name!==curName);
+  rest.unshift({name:curName,work,lines:SL.map(l=>({char:l.char,direction:l.direction,text:l.text,before:l.before||'',after:l.after||'',isMine:!!l.isMine}))});
+  writeSaved(rest.slice(0,30));
   renderSaved();
 }
 function loadScript(name){
@@ -838,9 +853,10 @@ function openWork(){
   const chars=[...new Set(SL.map(l=>l.char))];
   const mineChar=(SL.find(l=>l.isMine)||{}).char;
   sel.innerHTML=chars.map(c=>`<option${c===mineChar?' selected':''}>${esc(c)}</option>`).join('');
-  document.getElementById('wk-status').textContent='';
-  document.getElementById('wk-out').innerHTML='';
+  document.getElementById('wk-brk').value='';
+  document.getElementById('wk-inst').value='';
   document.getElementById('work-modal').classList.add('show');
+  loadThread();
 }
 function closeWork(){document.getElementById('work-modal').classList.remove('show');}
 // minimal markdown -> safe HTML (## headers, **bold**, - bullets, paragraphs)
@@ -857,12 +873,13 @@ function mdToHtml(md){
   if(inUl)html+='</ul>';
   return html;
 }
-async function craftLLM(system,user){
+async function craftLLM(system,messages){
   if(uploadRoute==='free'){
     if(!gemKey)throw new Error('Public mode needs a free Gemini key.');
+    const contents=messages.map(m=>({role:m.role==='assistant'?'model':'user',parts:[{text:m.content}]}));
     const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+encodeURIComponent(gemKey),{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({system_instruction:{parts:[{text:system}]},contents:[{parts:[{text:user}]}],
+      body:JSON.stringify({system_instruction:{parts:[{text:system}]},contents,
         safetySettings:['HARM_CATEGORY_HARASSMENT','HARM_CATEGORY_HATE_SPEECH','HARM_CATEGORY_SEXUALLY_EXPLICIT','HARM_CATEGORY_DANGEROUS_CONTENT'].map(c=>({category:c,threshold:'BLOCK_NONE'}))})
     });
     if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error((e.error&&e.error.message)||('Gemini '+r.status));}
@@ -872,28 +889,88 @@ async function craftLLM(system,user){
   if(!oai)throw new Error('Confidential mode needs your OpenAI key.');
   const r=await fetch('https://api.openai.com/v1/chat/completions',{
     method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+oai},
-    body:JSON.stringify({model:'gpt-4o',max_tokens:2000,messages:[{role:'system',content:system},{role:'user',content:user}]})
+    body:JSON.stringify({model:'gpt-4o',max_tokens:2000,messages:[{role:'system',content:system},...messages]})
   });
   if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error((e.error&&e.error.message)||('OpenAI '+r.status));}
   const d=await r.json();
   return d.choices[0].message.content||'';
 }
-async function makeBreakdown(){
-  const go=document.getElementById('wk-go'),st=document.getElementById('wk-status'),out=document.getElementById('wk-out');
+// Per-character breakdown chat, saved on the script (or in session for demo/unsaved).
+let _sessionWork={};
+function getWork(char){
+  if(curName){const s=loadSaved().find(x=>x.name===curName);if(s&&s.work&&s.work[char])return s.work[char];}
+  return _sessionWork[(curName||'demo')+'|'+char]||null;
+}
+function setWork(char,thread){
+  if(curName){const arr=loadSaved();const s=arr.find(x=>x.name===curName);if(s){s.work=s.work||{};s.work[char]=thread;writeSaved(arr);return;}}
+  _sessionWork[(curName||'demo')+'|'+char]=thread;
+}
+function renderThread(thread){
+  const out=document.getElementById('wk-out');
+  out.innerHTML=((thread&&thread.messages)||[]).map((m,i)=>
+    m.role==='assistant'?`<div class="wk-msg-a">${mdToHtml(m.content)}</div>`
+    :`<div class="wk-msg-u">${i===0?'▸ Breakdown request':esc(m.content)}</div>`
+  ).join('');
+  out.scrollTop=out.scrollHeight;
+}
+function loadThread(){
   const char=document.getElementById('wk-char').value;
-  const brk=document.getElementById('wk-brk').value.trim();
-  const inst=document.getElementById('wk-inst').value.trim();
-  go.disabled=true;out.innerHTML='';st.textContent='Working the scene…';
+  const thread=getWork(char);
+  const has=!!(thread&&thread.messages&&thread.messages.length);
+  document.getElementById('wk-setup').style.display=has?'none':'block';
+  document.getElementById('wk-followup').style.display=has?'block':'none';
+  document.getElementById('wk-export').style.display=has?'inline-block':'none';
+  document.getElementById('wk-reset').style.display=has?'inline-block':'none';
+  document.getElementById('wk-go').textContent=has?'SEND →':'BREAK IT DOWN';
+  document.getElementById('wk-status').textContent='';
+  renderThread(thread);
+}
+async function sendWork(){
+  const go=document.getElementById('wk-go'),st=document.getElementById('wk-status');
+  const char=document.getElementById('wk-char').value;
+  let thread=getWork(char);
+  go.disabled=true;
   try{
-    const user=`I'm playing: ${char}\n`+
-      (brk?`Casting / character breakdown:\n${brk}\n`:'')+
-      (inst?`My instinct:\n${inst}\n`:'')+
-      `\nThe scene:\n${sceneText()}`;
-    const txt=await craftLLM(CRAFT_PROMPT,user);
-    out.innerHTML=mdToHtml(txt);
+    if(!thread||!thread.messages||!thread.messages.length){
+      const brk=document.getElementById('wk-brk').value.trim();
+      const inst=document.getElementById('wk-inst').value.trim();
+      const first=`I'm playing: ${char}\n`+(brk?`Casting / character breakdown:\n${brk}\n`:'')+(inst?`My instinct:\n${inst}\n`:'')+`\nThe scene:\n${sceneText()}`;
+      thread={messages:[{role:'user',content:first}]};
+      document.getElementById('wk-setup').style.display='none';
+      document.getElementById('wk-followup').style.display='block';
+    } else {
+      const msg=document.getElementById('wk-msg').value.trim();
+      if(!msg){go.disabled=false;return;}
+      thread.messages.push({role:'user',content:msg});
+      document.getElementById('wk-msg').value='';
+    }
+    renderThread(thread);
+    st.textContent='Working the scene…';
+    const reply=await craftLLM(CRAFT_PROMPT,thread.messages);
+    thread.messages.push({role:'assistant',content:reply});
+    setWork(char,thread);
+    renderThread(thread);
+    loadThread();
     st.textContent='';
   }catch(e){st.textContent='⚠ '+(/fetch/i.test(e.message)?'Couldn\'t reach the model — check your key has credits':e.message);}
   go.disabled=false;
+}
+function exportWork(){
+  const char=document.getElementById('wk-char').value,thread=getWork(char);if(!thread)return;
+  const txt=thread.messages.map((m,i)=>m.role==='assistant'?m.content:(i===0?'[Breakdown request]':'> '+m.content)).join('\n\n———\n\n');
+  const full=`OFFBOOK — Scene work: ${char}\n${curName||''}\n\n`+txt;
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([full],{type:'text/plain'}));
+  a.download=((curName||'offbook').replace(/\.pdf$/i,''))+'_'+char+'_breakdown.txt';document.body.appendChild(a);a.click();a.remove();
+  if(navigator.clipboard)navigator.clipboard.writeText(txt).catch(()=>{});
+  document.getElementById('wk-status').textContent='✓ Exported (and copied to clipboard)';
+}
+function resetWork(){
+  const char=document.getElementById('wk-char').value;
+  if(!confirm('Clear the saved breakdown for '+char+'?'))return;
+  if(curName){const arr=loadSaved();const s=arr.find(x=>x.name===curName);if(s&&s.work){delete s.work[char];writeSaved(arr);}}
+  delete _sessionWork[(curName||'demo')+'|'+char];
+  document.getElementById('wk-brk').value='';document.getElementById('wk-inst').value='';
+  loadThread();
 }
 
 // ===== PRACTICE AUDIO EXPORT =====
