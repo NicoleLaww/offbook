@@ -48,6 +48,9 @@
   .sl-meta{font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--muted);margin-bottom:3px;}
   .sl.mine .sl-meta{color:var(--accent);}
   .sl-text{font-size:15px;color:var(--text);line-height:1.6;}
+  /* scene action/description context, and parenthetical cue */
+  .ctx{font-style:italic;color:var(--muted);font-size:12px;line-height:1.55;margin:6px 0;opacity:.8;}
+  .dir{font-style:italic;text-transform:none;letter-spacing:0;color:var(--amber);font-size:11px;}
   .bot{position:fixed;bottom:0;left:0;right:0;background:rgba(10,10,10,.97);backdrop-filter:blur(12px);border-top:1px solid var(--border);padding:14px 28px;display:flex;justify-content:space-between;align-items:center;gap:16px;z-index:100;}
   .bot-info{font-size:13px;color:var(--muted);}
   .bot-info strong{color:var(--text);}
@@ -467,19 +470,23 @@ async function doPDF(file){
       return;
     }
 
-    // Merge consecutive lines from the same character into one
-    const merged=[];
+    // Fold scene action/description into context on the next line; merge
+    // consecutive same-character dialogue (but not across an action beat).
+    const merged=[];let pendAction='';
     for(const l of lines){
+      if(l&&l.action){pendAction=(pendAction+' '+l.action).trim();continue;}
+      if(!l||(!l.char&&!l.text))continue;
       const prev=merged[merged.length-1];
-      if(prev&&prev.char===l.char){
+      if(prev&&prev.char===l.char&&!pendAction){
         prev.text=(prev.text+' '+l.text).trim();
         if(l.direction&&!prev.direction)prev.direction=l.direction;
       } else {
-        merged.push({...l});
+        merged.push({...l,before:pendAction});pendAction='';
       }
     }
+    if(pendAction&&merged.length)merged[merged.length-1].after=pendAction;
 
-    SL=merged.map((l,i)=>({...l,text:cleanText(l.text),id:i,isMine:false}));
+    SL=merged.map((l,i)=>({...l,text:cleanText(l.text),before:cleanText(l.before||''),after:cleanText(l.after||''),id:i,isMine:false}));
     curName=file.name;saveCurrent();
     document.getElementById('upst').textContent=`✓ ${SL.length} lines found`;
     setTimeout(()=>{buildScript();show('script-screen');},300);
@@ -550,13 +557,15 @@ async function parseImageWithGPT(dataUrl){
 IGNORE any faint diagonal watermark text, the vertical "Sides by Breakdown Services / Actors Access" label, timestamps, and tracking codes — those are NOT dialogue.
 
 Return a JSON object with a single key "lines" containing an array.
-Each element: {"char":"CHARACTER NAME","direction":"stage direction or empty string","text":"dialogue text"}
+Each element is EITHER spoken dialogue: {"char":"CHARACTER NAME","direction":"parenthetical cue or empty string","text":"dialogue text"}
+OR a scene action/description that is NOT spoken aloud (e.g. "She turns away."): {"action":"the description text"}
+Keep dialogue and action elements in their original order.
 
 STRICT rules:
 - char must be ALL CAPS, no parentheticals
 - Put parentheticals like "(ON SCREEN)" or "(V.O.)" in the direction field instead
 - Each character speech = one object
-- Do NOT include scene headings, action lines, page numbers, watermarks, or tracking codes
+- Do NOT include scene headings (INT./EXT.), page numbers, watermarks, or tracking codes — but DO capture action/description as {"action":"..."}
 - Do NOT merge different characters together
 - Keep in script order
 - If you truly see no dialogue, return {"lines":[]}`},
@@ -595,13 +604,15 @@ async function parseWithGPT(chunk){
           content:`Parse this screenplay text and extract every line of spoken dialogue in order.
 
 Return a JSON object with a single key "lines" containing an array.
-Each element: {"char":"CHARACTER NAME","direction":"stage direction or empty string","text":"dialogue text"}
+Each element is EITHER spoken dialogue: {"char":"CHARACTER NAME","direction":"parenthetical cue or empty string","text":"dialogue text"}
+OR a scene action/description that is NOT spoken aloud (e.g. "She turns away."): {"action":"the description text"}
+Keep dialogue and action elements in their original order.
 
 STRICT rules:
 - char must be ALL CAPS, no parentheticals (e.g. "KATIE YEOH" not "KATIE YEOH (ON SCREEN)")
 - Put parentheticals like "(ON SCREEN)" or "(V.O.)" in the direction field instead
 - Each character speech = one object
-- Do NOT include scene headings, action lines, page numbers, revision markers, watermarks
+- Do NOT include scene headings (INT./EXT.), page numbers, revision markers, watermarks — but DO capture action/description as {"action":"..."}
 - Do NOT include any line where the text is metadata like "Start", "End", "Scene 1", page numbers, timestamps, or codes — if it's not something a character actually says, exclude it
 - Do NOT merge different characters together  
 - Clean the dialogue text — strip asterisks (*), revision marks, page artifacts
@@ -626,11 +637,12 @@ ${chunk}`
 
 // Gemini (Google AI Studio) — free-tier text + vision parsing. Same job as the
 // OpenAI parse functions, different request shape.
-const GEMINI_RULES=`You are a screenplay parser. Extract every line of spoken dialogue in order.
-Return ONLY a JSON object with a single key "lines" — an array of
-{"char":"CHARACTER NAME","direction":"stage direction or empty string","text":"dialogue text"}.
+const GEMINI_RULES=`You are a screenplay parser. Extract the dialogue AND the scene action, in order.
+Return ONLY a JSON object with a single key "lines" — an array where each element is
+EITHER dialogue {"char":"CHARACTER NAME","direction":"parenthetical or empty","text":"dialogue text"}
+OR scene action/description (not spoken aloud) {"action":"the description text"}.
 Rules: char ALL CAPS, no parentheticals (put "(V.O.)" etc. in direction); one object per speech;
-exclude scene headings, action lines, page numbers, revision marks; keep script order.`;
+exclude scene headings (INT./EXT.), page numbers, revision marks, watermarks; keep everything in order.`;
 async function geminiParse(text,dataUrl){
   const parts=[{text:GEMINI_RULES+(text?('\n\nScript text:\n'+text):'\n\nRead the dialogue from the attached screenplay page image.')}];
   if(dataUrl)parts.push({inline_data:{mime_type:'image/jpeg',data:dataUrl.split(',')[1]}});
@@ -658,6 +670,11 @@ async function parseImageLLM(dataUrl){
   throw new Error('Add a Gemini key (free) or OpenAI key to read scanned pages');
 }
 
+// Shared bits: greyed scene-action context, and the parenthetical cue chip.
+function ctxHtml(t){return t?`<div class="ctx">${esc(t)}</div>`:'';}
+function dirHtml(d){return d?` <span class="dir">(${esc(d)})</span>`:'';}
+function metaHtml(l,p){return `${ctxHtml(l.before)}<div class="${p}-meta">${esc(l.char)}${dirHtml(l.direction)}</div><div class="${p}-text">${esc(l.text)}</div>${ctxHtml(l.after)}`;}
+
 // SCRIPT VIEW
 function buildScript(){
   const c=document.getElementById('slines');c.innerHTML='';
@@ -665,7 +682,7 @@ function buildScript(){
     const el=document.createElement('div');
     el.className='sl'+(l.isMine?' mine':'');
     el.dataset.id=l.id;
-    el.innerHTML=`<div class="sl-meta">${esc(l.char)}${l.direction?` <span style="font-style:italic;text-transform:none;letter-spacing:0;opacity:.6">(${esc(l.direction)})</span>`:''}</div><div class="sl-text">${esc(l.text)}</div>`;
+    el.innerHTML=metaHtml(l,'sl');
     el.addEventListener('click',()=>toggle(l.id));
     c.appendChild(el);
   });
@@ -779,7 +796,7 @@ function buildReadLines(){
     const el=document.createElement('div');
     el.className='rd'+(mine?' mine blacked':'');
     el.id='rd-'+l.id;
-    el.innerHTML=`<div class="rd-meta">${esc(l.char)}${l.direction?` <span style="font-style:italic;text-transform:none;letter-spacing:0;opacity:.6">(${esc(l.direction)})</span>`:''}</div><div class="rd-text">${esc(l.text)}</div>`;
+    el.innerHTML=metaHtml(l,'rd');
     if(mine){
       el.querySelector('.rd-text').addEventListener('click',()=>{
         const isBlacked=el.classList.contains('blacked');
@@ -810,7 +827,7 @@ function buildReh(){
     const el=document.createElement('div');
     el.className='rl'+(mine?' mine':'')+(blacked?' blacked':'')+(isCur?' cur':'');
     el.id='rl-'+l.id;
-    el.innerHTML=`<div class="rl-meta">${esc(l.char)}${l.direction?` <span style="font-style:italic;text-transform:none;letter-spacing:0;opacity:.6">(${esc(l.direction)})</span>`:''}</div><div class="rl-text">${esc(l.text)}</div>`;
+    el.innerHTML=metaHtml(l,'rl');
     // Tap to toggle reveal on blacked lines — click to show, click again to hide
     if(mine){
       el.querySelector('.rl-text').addEventListener('click',e=>{
