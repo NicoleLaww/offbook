@@ -1062,10 +1062,15 @@ function pickBrowserVoice(){
   const a=(document.getElementById('rv-a')||{}).value||'American';
   const vs=(window.speechSynthesis&&speechSynthesis.getVoices())||[];
   const lang=a==='British'?'en-GB':a==='Australian'?'en-AU':'en-US';
-  const fem=/female|samantha|victoria|karen|moira|tessa|fiona|serena|zoe|allison|ava/i;
-  const masc=/male|daniel|alex|fred|aaron|arthur|oliver|tom/i;
-  return vs.find(v=>v.lang===lang&&(g==='female'?fem:g==='male'?masc:/.*/).test(v.name))
-    ||vs.find(v=>v.lang===lang)||vs.find(v=>v.lang&&v.lang.startsWith('en'))||vs[0];
+  const fem=/female|samantha|victoria|karen|moira|tessa|fiona|serena|zoe|allison|ava|susan|zira|female/i;
+  const masc=/\bmale\b|daniel|alex|fred|aaron|arthur|oliver|\btom\b|david|mark|guy|james|reed/i;
+  const want=g==='female'?fem:g==='male'?masc:/.*/;
+  const avoid=g==='female'?masc:g==='male'?fem:/$^/; // don't pick the opposite gender
+  return vs.find(v=>v.lang===lang&&want.test(v.name))
+    ||vs.find(v=>/^en/.test(v.lang)&&want.test(v.name))         // any English match of the gender
+    ||vs.find(v=>v.lang===lang&&!avoid.test(v.name))            // any same-accent voice that isn't the opposite gender
+    ||vs.find(v=>/^en/.test(v.lang)&&!avoid.test(v.name))
+    ||vs.find(v=>v.lang===lang)||vs[0];
 }
 let _playing=false;
 function stopFree(){_playing=false;try{speechSynthesis.cancel();}catch(e){}const b=document.getElementById('am-play');if(b)b.textContent='▶ Play (free)';}
@@ -1105,11 +1110,12 @@ function readerVoice(){
   // "reading aloud to a friend" reads human without the over-acting.
   const base = g==='male' ? (a==='British'?'fable':'onyx')
              : g==='neutral' ? 'alloy'
-             : 'coral';
+             : 'nova';
   const noun = g==='male'?'man':g==='neutral'?'person':'woman';
+  const genderLock = g==='male'?'Clearly a man\'s voice.':g==='neutral'?'':'Clearly a woman\'s voice — feminine register.';
   const ageDesc={teenage:'teenage',"young adult":'in their early twenties','middle-aged':'in their forties','older':'older'}[age]||age;
-  const instr=`Speak like a relaxed, natural ${a} ${noun} ${ageDesc}, casually reading lines aloud to help a friend run their scene. Easygoing, conversational, human — plain everyday speech at a normal pace. Do NOT perform, act, or dramatize: no theatrical or emotional emphasis, no big swings, no character voices. Just say the words simply and naturally, the way you'd read a text message out loud.`;
-  return {base,instr,sig:g+'|'+a+'|'+age+'|nat2'};
+  const instr=`Speak like a relaxed, natural ${a} ${noun} ${ageDesc}, casually reading lines aloud to help a friend run their scene. ${genderLock} Easygoing, conversational, human — plain everyday speech at a normal pace. Do NOT perform, act, or dramatize: no theatrical or emotional emphasis, no big swings, no character voices. Just say the words simply and naturally, the way you'd read a text message out loud.`;
+  return {base,instr,sig:g+'|'+a+'|'+age+'|nat3'};
 }
 async function ttsBlob(text,voice,key,instr){
   const body={model:instr?'gpt-4o-mini-tts':'tts-1',input:text,voice};
