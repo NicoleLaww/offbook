@@ -412,7 +412,14 @@ async function doPDF(file){
     for(const p of pages){
       const hasText = p.text.trim().length >= 40;
       document.getElementById('upst').innerHTML=`<span class="spin"></span>Reading page ${p.num}/${pages.length}${hasText?'':' (scanned — using vision)'}...`;
-      const part = hasText ? await parseTextLLM(p.text) : await parseImageLLM(await pageToImage(p.page));
+      let part = hasText ? await parseTextLLM(p.text) : await parseImageLLM(await pageToImage(p.page));
+      // Fallback: a page with lots of text but ~no dialogue means the text layer
+      // is scrambled/watermarked (e.g. Actors Access "Sides"). Read the image instead.
+      if(hasText && (!part||part.length<2) && p.text.trim().length>200){
+        document.getElementById('upst').innerHTML=`<span class="spin"></span>Reading page ${p.num}/${pages.length} (protected — using vision)...`;
+        const vis = await parseImageLLM(await pageToImage(p.page));
+        if(vis&&vis.length) part = vis;
+      }
       if(part&&part.length)lines=lines.concat(part);
     }
     if(!lines||!lines.length){
