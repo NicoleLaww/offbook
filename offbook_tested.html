@@ -1094,8 +1094,8 @@ function readerVoice(){
   const age=(document.getElementById('rv-age')||{}).value||'young adult';
   const base=g==='male'?'onyx':g==='neutral'?'alloy':'coral';
   const noun=g==='male'?'man':g==='neutral'?'person':'woman';
-  const instr=`You are an actor's off-camera scene-partner reader. Read ONLY the spoken dialogue, naturally and clearly, as a ${age} ${a} ${noun}. Never read stage directions or anything in parentheses.`;
-  return {base,instr,sig:g+'|'+a+'|'+age};
+  const instr=`You are an off-camera scene-partner reader for an actor's self-tape. Voice: a ${age} ${a} ${noun}. Read the lines FLAT and NEUTRAL — an even, relaxed table-read, NOT a performance. Do not act, emphasize emotion, dramatize, shout, cry, or play the scene. Keep a steady, natural, conversational pace and just give the cues plainly so the actor can play off them. Read only the spoken words; never read stage directions or anything in parentheses.`;
+  return {base,instr,sig:g+'|'+a+'|'+age+'|flat'};
 }
 async function ttsBlob(text,voice,key,instr){
   const body={model:instr?'gpt-4o-mini-tts':'tts-1',input:text,voice};
