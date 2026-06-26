@@ -151,6 +151,12 @@
   #step-key summary{cursor:pointer;font-size:13px;color:var(--accent);list-style:none;}
   #step-key summary::-webkit-details-marker{display:none;}
   .demo-cta{font-size:12px;color:var(--muted);margin-bottom:20px;}
+  .route-q{font-size:12px;color:var(--muted);margin-bottom:8px;letter-spacing:.04em;text-transform:uppercase;}
+  .route-row{display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;}
+  .route-opt{flex:1;min-width:150px;border:1px solid var(--border);border-radius:10px;padding:12px 14px;cursor:pointer;transition:all .15s;}
+  .route-opt.on{border-color:var(--accent);background:rgba(167,139,250,.08);}
+  .ro-t{font-size:13px;color:var(--text);margin-bottom:3px;}
+  .ro-d{font-size:11px;color:var(--muted);line-height:1.45;}
   .ksub{font-size:12px;color:var(--muted);margin:16px 0 18px;line-height:1.6;}
   .klab{display:block;font-size:12px;color:var(--text);margin-bottom:6px;}
   .kfree{color:var(--accent);font-size:10px;text-transform:uppercase;letter-spacing:.05em;margin-left:4px;}
@@ -175,7 +181,7 @@
     <input id="gem" type="password" placeholder="AIza..." />
     <label class="klab">Groq <span class="kfree">FREE — transcribes your voice · console.groq.com</span></label>
     <input id="groq" type="password" placeholder="gsk_..." />
-    <label class="klab">OpenAI <span class="kfree">optional, paid — fallback + nicer voice</span></label>
+    <label class="klab">OpenAI <span class="kfree">paid — confidential scripts + nicer voice</span></label>
     <input id="oai" type="password" placeholder="sk-..." />
     <button class="big" onclick="saveKeys()">SAVE &amp; CONTINUE →</button>
     <div class="err" id="kerr"></div>
@@ -187,6 +193,17 @@
   <div class="logo" style="margin-bottom:32px">OFF<span>BOOK</span></div>
   <h2>Upload Script</h2>
   <div class="sub">Drop your PDF — we read it into clean lines you can rehearse.</div>
+  <div class="route-q">This script is:</div>
+  <div class="route-row">
+    <div class="route-opt on" data-route="paid" onclick="setRoute(this)">
+      <div class="ro-t">🔒 Unreleased / confidential</div>
+      <div class="ro-d">Your OpenAI key (paid, never trained on)</div>
+    </div>
+    <div class="route-opt" data-route="free" onclick="setRoute(this)">
+      <div class="ro-t">🆓 Public / already aired</div>
+      <div class="ro-d">Free (Gemini) — fine for public material</div>
+    </div>
+  </div>
   <label id="dz" for="pdfin">
     <div class="icon">📄</div>
     <div class="dzl">Drop PDF here or <em>tap to browse</em></div>
@@ -437,6 +454,11 @@ dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('over');}
 dz.addEventListener('dragleave',()=>dz.classList.remove('over'));
 dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('over');doPDF(e.dataTransfer.files[0]);});
 
+// Upload route: 'paid' = OpenAI (your key, no-train, for unreleased/NDA);
+// 'free' = Gemini free tier (fine for already-public/aired scripts).
+let uploadRoute='paid';
+function setRoute(el){uploadRoute=el.dataset.route;document.querySelectorAll('.route-opt').forEach(o=>o.classList.toggle('on',o===el));}
+
 // Protected/scanned pages need vision OCR (the part that costs money). Ask first.
 function askOCR(n){
   return new Promise(res=>{
@@ -476,9 +498,9 @@ async function doPDF(file){
       if((!part||part.length<2) && p.text.trim().length>200){ needOCR.push(i); }
       else { pageResults[i] = part||[]; }
     }
-    // Phase 2 — OCR is the part that costs money, so ask first.
+    // Phase 2 — OCR. Free route (Gemini) just runs; paid route (OpenAI) asks first.
     if(needOCR.length){
-      const ok = await askOCR(needOCR.length);
+      const ok = (uploadRoute==='free') ? true : await askOCR(needOCR.length);
       if(ok){
         for(const i of needOCR){
           const p=pages[i];
@@ -686,14 +708,21 @@ async function geminiParse(text,dataUrl){
 
 // Route each parse to the cheapest available provider (Gemini free → OpenAI).
 async function parseTextLLM(text){
-  if(gemKey)return geminiParse(text,null);
-  if(oai)return parseWithGPT(text);
-  throw new Error('Add a Gemini key (free) or OpenAI key to read scripts');
+  // Strict by route so a confidential script never reaches the free tier.
+  if(uploadRoute==='free'){
+    if(!gemKey)throw new Error('Public mode needs a free Gemini key — add one under "Use your own keys".');
+    return geminiParse(text,null);
+  }
+  if(!oai)throw new Error('Confidential mode needs your OpenAI key.');
+  return parseWithGPT(text);
 }
 async function parseImageLLM(dataUrl){
-  if(gemKey)return geminiParse(null,dataUrl);
-  if(oai)return parseImageWithGPT(dataUrl);
-  throw new Error('Add a Gemini key (free) or OpenAI key to read scanned pages');
+  if(uploadRoute==='free'){
+    if(!gemKey)throw new Error('Public mode needs a free Gemini key — add one under "Use your own keys".');
+    return geminiParse(null,dataUrl);
+  }
+  if(!oai)throw new Error('Confidential mode needs your OpenAI key.');
+  return parseImageWithGPT(dataUrl);
 }
 
 // Shared bits: greyed scene-action context, and the parenthetical cue chip.
