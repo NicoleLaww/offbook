@@ -500,13 +500,15 @@ async function parseImageWithGPT(dataUrl){
     method:'POST',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+oai},
     body:JSON.stringify({
-      model:'gpt-4o-mini',
+      model:'gpt-4o',
       max_tokens:4096,
       response_format:{type:'json_object'},
       messages:[
         {role:'system',content:'You read a screenplay page image and return the dialogue as structured JSON. Always return valid JSON only.'},
         {role:'user',content:[
-          {type:'text',text:`This is one page of a screenplay (a scanned image). Read every line of spoken dialogue on it, in order.
+          {type:'text',text:`This is one page of a screenplay (an audition "side"). Read every line of spoken dialogue on it, in order.
+
+IGNORE any faint diagonal watermark text, the vertical "Sides by Breakdown Services / Actors Access" label, timestamps, and tracking codes — those are NOT dialogue.
 
 Return a JSON object with a single key "lines" containing an array.
 Each element: {"char":"CHARACTER NAME","direction":"stage direction or empty string","text":"dialogue text"}
@@ -515,11 +517,11 @@ STRICT rules:
 - char must be ALL CAPS, no parentheticals
 - Put parentheticals like "(ON SCREEN)" or "(V.O.)" in the direction field instead
 - Each character speech = one object
-- Do NOT include scene headings, action lines, page numbers, or revision markers
+- Do NOT include scene headings, action lines, page numbers, watermarks, or tracking codes
 - Do NOT merge different characters together
 - Keep in script order
-- If the page has no dialogue, return {"lines":[]}`},
-          {type:'image_url',image_url:{url:dataUrl}}
+- If you truly see no dialogue, return {"lines":[]}`},
+          {type:'image_url',image_url:{url:dataUrl,detail:'high'}}
         ]}
       ]
     })
