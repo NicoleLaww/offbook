@@ -140,6 +140,10 @@
   .am-opt.on{border-color:var(--accent);background:rgba(167,139,250,.08);}
   .am-t{font-size:14px;color:var(--text);margin-bottom:3px;}
   .am-d{font-size:11px;color:var(--muted);line-height:1.5;}
+  .rv-wrap{margin:16px 0 4px;}
+  .rv-h{font-size:12px;color:var(--text);margin-bottom:8px;}
+  .rv-row{display:flex;gap:8px;}
+  .rv-row select{flex:1;background:var(--s2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Mono',monospace;font-size:12px;padding:9px 8px;}
   .am-gap{font-size:12px;color:var(--text);margin:16px 0 4px;}
   .am-gap input{width:100%;margin-top:8px;}
   .am-status{font-size:12px;color:var(--muted);text-align:center;margin-top:12px;min-height:18px;line-height:1.5;}
@@ -250,6 +254,14 @@
     <div class="am-opt" data-mode="both" onclick="pickMode(this)">
       <div class="am-t">🎬 Full scene — both sides</div>
       <div class="am-d">Every line, each character in a different voice.</div>
+    </div>
+    <div class="rv-wrap">
+      <div class="rv-h">Reader voice</div>
+      <div class="rv-row">
+        <select id="rv-g"><option value="female">Female</option><option value="male">Male</option><option value="neutral">Neutral</option></select>
+        <select id="rv-a"><option value="American">American</option><option value="British">British</option><option value="Australian">Australian</option></select>
+        <select id="rv-age"><option value="teenage">Teen</option><option value="young adult" selected>20s–30s</option><option value="middle-aged">40s–50s</option><option value="older">60s+</option></select>
+      </div>
     </div>
     <div class="am-gap">Pause between lines: <strong id="gaplabel">0.8s</strong>
       <input type="range" id="gap" min="0.3" max="3" step="0.1" value="0.8" oninput="document.getElementById('gaplabel').textContent=this.value+'s'">
@@ -780,10 +792,25 @@ function pickMode(el){
 }
 // ~speaking time of a line, so the reader track leaves room for you to say it
 function estimateDur(t){const w=(t||'').trim().split(/\s+/).filter(Boolean).length;return Math.max(1.2,w*0.38+0.5);}
-async function ttsBlob(text,voice,key){
+// Only the spoken words — strip parentheticals/stage directions so the reader
+// never says "(angry)" etc. aloud.
+function spokenText(t){return (t||'').replace(/\([^)]*\)/g,'').replace(/\[[^\]]*\]/g,'').replace(/\s+/g,' ').trim();}
+// The chosen reader voice → an OpenAI base voice + a steering instruction.
+function readerVoice(){
+  const g=(document.getElementById('rv-g')||{}).value||'female';
+  const a=(document.getElementById('rv-a')||{}).value||'American';
+  const age=(document.getElementById('rv-age')||{}).value||'young adult';
+  const base=g==='male'?'onyx':g==='neutral'?'alloy':'coral';
+  const noun=g==='male'?'man':g==='neutral'?'person':'woman';
+  const instr=`You are an actor's off-camera scene-partner reader. Read ONLY the spoken dialogue, naturally and clearly, as a ${age} ${a} ${noun}. Never read stage directions or anything in parentheses.`;
+  return {base,instr,sig:g+'|'+a+'|'+age};
+}
+async function ttsBlob(text,voice,key,instr){
+  const body={model:instr?'gpt-4o-mini-tts':'tts-1',input:text,voice};
+  if(instr)body.instructions=instr; else body.speed=1.0;
   const r=await fetch('https://api.openai.com/v1/audio/speech',{
     method:'POST',headers:{'Authorization':'Bearer '+key,'Content-Type':'application/json'},
-    body:JSON.stringify({model:'tts-1',input:text,voice,speed:1.0})
+    body:JSON.stringify(body)
   });
   if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error((e.error&&e.error.message)||('TTS '+r.status));}
   return r.blob();
@@ -810,8 +837,9 @@ async function makeAudio(){
   const go=document.getElementById('am-go'),st=document.getElementById('am-status');
   const names={reader:'reader-track',mine:'my-lines',both:'full-scene'};
   const fname=(curName?curName.replace(/\.pdf$/i,''):'offbook')+'_'+names[audioMode]+'.wav';
+  const rv=readerVoice();
   const mineSig=SL.filter(l=>l.isMine).map(l=>l.id).join('.');
-  const key=(curName||'demo')+'|'+audioMode+'|'+gap+'|'+SL.length+'|'+mineSig;
+  const key=(curName||'demo')+'|'+audioMode+'|'+gap+'|'+rv.sig+'|'+SL.length+'|'+mineSig;
   go.disabled=true;
   try{
     const cached=await idbGet(key);
@@ -826,9 +854,10 @@ async function makeAudio(){
     const segs=[];
     for(const l of SL){
       const mine=l.isMine;
-      if(audioMode==='mine'){ if(mine){segs.push({text:l.text,voice:voiceFor(l.char)});segs.push({sil:gap});} }
-      else if(audioMode==='reader'){ if(mine){segs.push({sil:estimateDur(l.text)+0.3});} else {segs.push({text:l.text,voice:voiceFor(l.char)});segs.push({sil:gap});} }
-      else { segs.push({text:l.text,voice:voiceFor(l.char)});segs.push({sil:gap}); }
+      const say=spokenText(l.text);
+      if(audioMode==='mine'){ if(mine&&say){segs.push({text:say,voice:rv.base});segs.push({sil:gap});} }
+      else if(audioMode==='reader'){ if(mine){segs.push({sil:estimateDur(say)+0.3});} else if(say){segs.push({text:say,voice:rv.base});segs.push({sil:gap});} }
+      else if(say){ segs.push({text:say,voice:voiceFor(l.char)});segs.push({sil:gap}); }
     }
     const todo=segs.filter(s=>s.text).length;
     if(!todo){st.textContent='Nothing to generate for this option.';go.disabled=false;return;}
@@ -836,7 +865,7 @@ async function makeAudio(){
     for(const s of segs){
       if(s.sil!=null){decoded.push({len:Math.round(s.sil*sr)});continue;}
       st.textContent=`Generating voice ${++done}/${todo}…`;
-      const ab=await ac.decodeAudioData(await (await ttsBlob(s.text,s.voice,oai)).arrayBuffer());
+      const ab=await ac.decodeAudioData(await (await ttsBlob(s.text,s.voice,oai,rv.instr)).arrayBuffer());
       decoded.push({data:ab.getChannelData(0)});
     }
     st.textContent='Stitching the track…';
