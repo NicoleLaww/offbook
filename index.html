@@ -754,6 +754,11 @@ EITHER dialogue {"char":"CHARACTER NAME","direction":"parenthetical or empty","t
 OR scene action/description (not spoken aloud) {"action":"the description text"}.
 Rules: char ALL CAPS, no parentheticals (put "(V.O.)" etc. in direction); one object per speech;
 exclude scene headings (INT./EXT.), page numbers, revision marks, watermarks; keep everything in order.`;
+function cleanGemErr(status,msg){
+  if(status===429||/quota|rate.?limit|limit: ?0/i.test(msg||''))
+    return 'Free Gemini tier has no quota on this key (it reports limit 0). Use the 🔒 Confidential (OpenAI) route, or enable billing on your Google AI Studio key.';
+  return msg||('Gemini error '+status);
+}
 async function geminiParse(text,dataUrl){
   const parts=[{text:GEMINI_RULES+(text?('\n\nScript text:\n'+text):'\n\nRead the dialogue from the attached screenplay page image.')}];
   if(dataUrl)parts.push({inline_data:{mime_type:'image/jpeg',data:dataUrl.split(',')[1]}});
@@ -762,7 +767,7 @@ async function geminiParse(text,dataUrl){
     body:JSON.stringify({contents:[{parts}],generationConfig:{responseMimeType:'application/json'},
       safetySettings:['HARM_CATEGORY_HARASSMENT','HARM_CATEGORY_HATE_SPEECH','HARM_CATEGORY_SEXUALLY_EXPLICIT','HARM_CATEGORY_DANGEROUS_CONTENT'].map(c=>({category:c,threshold:'BLOCK_NONE'}))})
   });
-  if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error((e.error&&e.error.message)||('Gemini error '+res.status));}
+  if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(cleanGemErr(res.status,e.error&&e.error.message));}
   const data=await res.json();
   const txt=(((data.candidates||[])[0]||{}).content||{}).parts&&data.candidates[0].content.parts[0].text||'';
   const parsed=JSON.parse(txt);
@@ -912,7 +917,7 @@ async function craftLLM(system,messages){
       body:JSON.stringify({system_instruction:{parts:[{text:system}]},contents,
         safetySettings:['HARM_CATEGORY_HARASSMENT','HARM_CATEGORY_HATE_SPEECH','HARM_CATEGORY_SEXUALLY_EXPLICIT','HARM_CATEGORY_DANGEROUS_CONTENT'].map(c=>({category:c,threshold:'BLOCK_NONE'}))})
     });
-    if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error((e.error&&e.error.message)||('Gemini '+r.status));}
+    if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(cleanGemErr(r.status,e.error&&e.error.message));}
     const d=await r.json();
     return (((d.candidates||[])[0]||{}).content||{}).parts&&d.candidates[0].content.parts[0].text||'';
   }
