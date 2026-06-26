@@ -128,6 +128,18 @@
   #done-screen h2{font-family:'Syne',sans-serif;font-weight:800;font-size:48px;margin-bottom:12px;color:var(--green);}
   #done-screen p{color:var(--muted);margin-bottom:32px;}
   .score{font-family:'Syne',sans-serif;font-size:20px;margin-bottom:40px;}
+  #audio-modal{position:fixed;inset:0;z-index:400;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;padding:20px;}
+  #audio-modal.show{display:flex;}
+  .am-card{position:relative;background:#161616;border:1px solid var(--border);border-radius:14px;padding:26px 22px;width:100%;max-width:460px;box-shadow:0 20px 60px rgba(0,0,0,.7);max-height:90vh;overflow:auto;}
+  .am-h{font-family:'Syne',sans-serif;font-weight:800;font-size:20px;margin-bottom:4px;}
+  .am-sub{font-size:12px;color:var(--muted);margin-bottom:18px;line-height:1.6;}
+  .am-opt{border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px;cursor:pointer;transition:all .15s;}
+  .am-opt.on{border-color:var(--accent);background:rgba(167,139,250,.08);}
+  .am-t{font-size:14px;color:var(--text);margin-bottom:3px;}
+  .am-d{font-size:11px;color:var(--muted);line-height:1.5;}
+  .am-gap{font-size:12px;color:var(--text);margin:16px 0 4px;}
+  .am-gap input{width:100%;margin-top:8px;}
+  .am-status{font-size:12px;color:var(--muted);text-align:center;margin-top:12px;min-height:18px;line-height:1.5;}
   #demobar{position:fixed;top:0;left:0;right:0;z-index:300;background:var(--accent);color:#000;font-size:12px;font-weight:500;padding:10px 16px;display:none;align-items:center;justify-content:center;gap:12px;text-align:center;flex-wrap:wrap;}
   #demobar button{background:#000;color:var(--accent);border:none;border-radius:6px;font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:.08em;padding:7px 13px;cursor:pointer;text-transform:uppercase;}
   body.demo{padding-top:80px;}
@@ -194,9 +206,36 @@
     <div class="bot-info"><strong id="mcount">0</strong> lines selected</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
       <button class="ghost" onclick="clearMine()">Clear</button>
+      <button class="ghost" id="audiobtn" onclick="openAudio()" disabled>🎧 Make Audio</button>
       <button class="ghost" id="readbtn" onclick="goRead()" disabled style="border-color:var(--accent);color:var(--accent);">Read Through</button>
       <button class="big" id="rehbtn" onclick="goReh()" disabled>REHEARSE →</button>
     </div>
+  </div>
+</div>
+
+<!-- AUDIO EXPORT -->
+<div id="audio-modal">
+  <div class="am-card">
+    <button class="cmp-x" onclick="closeAudio()" aria-label="Close">✕</button>
+    <h3 class="am-h">Make practice audio</h3>
+    <div class="am-sub">An audio file you can play while you rehearse. Uses your OpenAI key for the voices.</div>
+    <div class="am-opt on" data-mode="reader" onclick="pickMode(this)">
+      <div class="am-t">🎭 Reader's lines — gaps for me</div>
+      <div class="am-d">Hear the other characters; silence where your lines go, so you say them along.</div>
+    </div>
+    <div class="am-opt" data-mode="mine" onclick="pickMode(this)">
+      <div class="am-t">🗣️ My lines only</div>
+      <div class="am-d">Just your character's lines, to memorize by ear.</div>
+    </div>
+    <div class="am-opt" data-mode="both" onclick="pickMode(this)">
+      <div class="am-t">🎬 Full scene — both sides</div>
+      <div class="am-d">Every line, each character in a different voice.</div>
+    </div>
+    <div class="am-gap">Pause between lines: <strong id="gaplabel">0.8s</strong>
+      <input type="range" id="gap" min="0.3" max="3" step="0.1" value="0.8" oninput="document.getElementById('gaplabel').textContent=this.value+'s'">
+    </div>
+    <button class="big" id="am-go" onclick="makeAudio()" style="width:100%;margin-top:6px">GENERATE</button>
+    <div class="am-status" id="am-status"></div>
   </div>
 </div>
 
@@ -646,7 +685,84 @@ function updCount(){
   document.getElementById('mcount').textContent=n;
   document.getElementById('rehbtn').disabled=n===0;
   document.getElementById('readbtn').disabled=n===0;
+  const ab=document.getElementById('audiobtn');if(ab)ab.disabled=n===0;
   saveCurrent();
+}
+
+// ===== PRACTICE AUDIO EXPORT =====
+let audioMode='reader';
+function openAudio(){
+  if(!SL.filter(l=>l.isMine).length)return;
+  document.getElementById('am-status').textContent='';
+  document.getElementById('audio-modal').classList.add('show');
+}
+function closeAudio(){document.getElementById('audio-modal').classList.remove('show');}
+function pickMode(el){
+  audioMode=el.dataset.mode;
+  document.querySelectorAll('.am-opt').forEach(o=>o.classList.toggle('on',o===el));
+}
+// ~speaking time of a line, so the reader track leaves room for you to say it
+function estimateDur(t){const w=(t||'').trim().split(/\s+/).filter(Boolean).length;return Math.max(1.2,w*0.38+0.5);}
+async function ttsBlob(text,voice,key){
+  const r=await fetch('https://api.openai.com/v1/audio/speech',{
+    method:'POST',headers:{'Authorization':'Bearer '+key,'Content-Type':'application/json'},
+    body:JSON.stringify({model:'tts-1',input:text,voice,speed:1.0})
+  });
+  if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error((e.error&&e.error.message)||('TTS '+r.status));}
+  return r.blob();
+}
+function encodeWAV(samples,sr){
+  const buf=new ArrayBuffer(44+samples.length*2),v=new DataView(buf);
+  const w=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i));};
+  w(0,'RIFF');v.setUint32(4,36+samples.length*2,true);w(8,'WAVE');w(12,'fmt ');
+  v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);
+  v.setUint32(24,sr,true);v.setUint32(28,sr*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);
+  w(36,'data');v.setUint32(40,samples.length*2,true);
+  let off=44;for(let i=0;i<samples.length;i++){const s=Math.max(-1,Math.min(1,samples[i]));v.setInt16(off,s<0?s*0x8000:s*0x7FFF,true);off+=2;}
+  return new Blob([v],{type:'audio/wav'});
+}
+async function makeAudio(){
+  if(!oai){document.getElementById('am-status').textContent='Add your OpenAI key (the voices use TTS).';return;}
+  const gap=parseFloat(document.getElementById('gap').value)||0.8;
+  const go=document.getElementById('am-go'),st=document.getElementById('am-status');
+  go.disabled=true;
+  try{
+    const ac=new (window.AudioContext||window.webkitAudioContext)();
+    if(ac.state==='suspended')await ac.resume();
+    const sr=ac.sampleRate;
+    const voices=['nova','onyx','shimmer','echo','fable','alloy'];
+    const chars=[...new Set(SL.map(l=>l.char))];
+    const voiceFor=c=>voices[Math.max(0,chars.indexOf(c))%voices.length];
+    // Build the segment plan
+    const segs=[];
+    for(const l of SL){
+      const mine=l.isMine;
+      if(audioMode==='mine'){ if(mine){segs.push({text:l.text,voice:voiceFor(l.char)});segs.push({sil:gap});} }
+      else if(audioMode==='reader'){ if(mine){segs.push({sil:estimateDur(l.text)+0.3});} else {segs.push({text:l.text,voice:voiceFor(l.char)});segs.push({sil:gap});} }
+      else { segs.push({text:l.text,voice:voiceFor(l.char)});segs.push({sil:gap}); }
+    }
+    const todo=segs.filter(s=>s.text).length;
+    if(!todo){st.textContent='Nothing to generate for this option.';go.disabled=false;return;}
+    const decoded=[];let done=0;
+    for(const s of segs){
+      if(s.sil!=null){decoded.push({len:Math.round(s.sil*sr)});continue;}
+      st.textContent=`Generating voice ${++done}/${todo}…`;
+      const ab=await ac.decodeAudioData(await (await ttsBlob(s.text,s.voice,oai)).arrayBuffer());
+      decoded.push({data:ab.getChannelData(0)});
+    }
+    st.textContent='Stitching the track…';
+    let total=0;for(const d of decoded)total+=d.data?d.data.length:d.len;
+    const out=new Float32Array(total);let off=0;
+    for(const d of decoded){if(d.data){out.set(d.data,off);off+=d.data.length;}else off+=d.len;}
+    const wav=encodeWAV(out,sr);
+    const names={reader:'reader-track',mine:'my-lines',both:'full-scene'};
+    const fname=(curName?curName.replace(/\.pdf$/i,''):'offbook')+'_'+names[audioMode]+'.wav';
+    const url=URL.createObjectURL(wav);
+    const a=document.createElement('a');a.href=url;a.download=fname;document.body.appendChild(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),4000);
+    st.textContent='✓ Downloaded '+fname;
+  }catch(e){st.textContent='⚠ '+(/fetch/i.test(e.message)?'Couldn\'t reach OpenAI — check your key has credits':e.message);}
+  go.disabled=false;
 }
 
 function goRead(){
