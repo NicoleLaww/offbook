@@ -1118,12 +1118,14 @@ function readerVoice(){
   return {base,instr,sig:g+'|'+a+'|'+age+'|nat3'};
 }
 async function ttsBlob(text,voice,key,instr){
-  const body={model:instr?'gpt-4o-mini-tts':'tts-1',input:text,voice};
-  if(instr)body.instructions=instr; else body.speed=1.0;
-  const r=await fetch('https://api.openai.com/v1/audio/speech',{
+  const call=(body)=>fetch('https://api.openai.com/v1/audio/speech',{
     method:'POST',headers:{'Authorization':'Bearer '+key,'Content-Type':'application/json'},
     body:JSON.stringify(body)
   });
+  // Try the steerable voice; if this account can't use it, fall back to tts-1.
+  let r = instr ? await call({model:'gpt-4o-mini-tts',input:text,voice,instructions:instr})
+                : await call({model:'tts-1',input:text,voice,speed:1.0});
+  if(!r.ok && instr) r = await call({model:'tts-1',input:text,voice,speed:1.0});
   if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error((e.error&&e.error.message)||('TTS '+r.status));}
   return r.blob();
 }
