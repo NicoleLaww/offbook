@@ -1539,36 +1539,52 @@ function tokenize(s){
 
 // LCS on position-tagged tokens so "i'm" at index 3 ≠ "i'm" at index 10
 // This prevents greedy early-match consuming a word that belongs later
-function lcs(a,b){
-  // Tag each word with its index: "word__i__j" so same word at diff positions is distinct
-  // But we still compare by word value only
+// Edit distance — lets near-spellings count (dialect / homophones / Whisper slips).
+function lev(a,b){
+  const m=a.length,n=b.length;if(!m)return n;if(!n)return m;
+  let prev=Array.from({length:n+1},(_,i)=>i);
+  for(let i=1;i<=m;i++){
+    const cur=[i];
+    for(let j=1;j<=n;j++)cur[j]=a[i-1]===b[j-1]?prev[j-1]:1+Math.min(prev[j-1],prev[j],cur[j-1]);
+    prev=cur;
+  }
+  return prev[n];
+}
+// "thang"≈"thing", "fyuck"≈"fuck", "medaled"≈"meddled" — close enough to count.
+function wordsClose(a,b){
+  if(a===b)return true;
+  const L=Math.max(a.length,b.length);
+  if(L<3)return false;
+  return lev(a,b) <= (L<=4?1:2);
+}
+function weq(a,b,fuzzy){return a===b||(fuzzy&&wordsClose(a,b));}
+
+function lcs(a,b,fuzzy){
   const m=a.length,n=b.length;
   const dp=Array.from({length:m+1},()=>new Int16Array(n+1));
   for(let i=1;i<=m;i++)
     for(let j=1;j<=n;j++)
-      dp[i][j]=a[i-1]===b[j-1] ? dp[i-1][j-1]+1 : Math.max(dp[i-1][j],dp[i][j-1]);
+      dp[i][j]=weq(a[i-1],b[j-1],fuzzy) ? dp[i-1][j-1]+1 : Math.max(dp[i-1][j],dp[i][j-1]);
   const matches=[];let i=m,j=n;
   while(i>0&&j>0){
-    if(a[i-1]===b[j-1]){matches.unshift([i-1,j-1]);i--;j--;}
+    if(weq(a[i-1],b[j-1],fuzzy)){matches.unshift([i-1,j-1]);i--;j--;}
     else if(dp[i-1][j]>=dp[i][j-1])i--;else j--;
   }
   return matches;
 }
 
-// After LCS, do a second pass: any unmatched spoken word that equals the correct
-// word at nearby positions gets upgraded to a match (handles greedy-steal of repeats)
-function bestMatches(spoken, script){
-  const m0=lcs(spoken,script);
+// After LCS, upgrade any unmatched spoken word near an unmatched script word.
+function bestMatches(spoken, script, fuzzy){
+  const m0=lcs(spoken,script,fuzzy);
   const usedA=new Set(m0.map(m=>m[0]));
   const usedB=new Set(m0.map(m=>m[1]));
   const result=[...m0];
-  // For each unmatched spoken word, find the closest unmatched script word with same value
   for(let ai=0;ai<spoken.length;ai++){
     if(usedA.has(ai))continue;
     let best=-1,bestDist=Infinity;
     for(let bi=0;bi<script.length;bi++){
       if(usedB.has(bi))continue;
-      if(spoken[ai]===script[bi]){
+      if(weq(spoken[ai],script[bi],fuzzy)){
         const dist=Math.abs(ai/spoken.length - bi/script.length);
         if(dist<bestDist){bestDist=dist;best=bi;}
       }
@@ -1582,20 +1598,22 @@ function chk(s,c){
   const ns=norm(s),nc=norm(c);
   if(mode==='exact')return ns===nc;
   const wa=ns.split(' '),wb=nc.split(' ');
-  const matches=bestMatches(wa,wb);
+  const matches=bestMatches(wa,wb,true);
   return matches.length/Math.max(wa.length,wb.length)>=(mode==='word'?0.82:0.65);
 }
 
 function dYou(s,c){
+  const fz=mode!=='exact';
   const ta=tokenize(s),tb=tokenize(c);
-  const matches=bestMatches(ta.map(t=>t.n),tb.map(t=>t.n));
+  const matches=bestMatches(ta.map(t=>t.n),tb.map(t=>t.n),fz);
   const matchedA=new Set(matches.map(m=>m[0]));
   return ta.map((t,i)=>matchedA.has(i)?`<span class="wo">${esc(t.disp)} </span>`:`<span class="ww">${esc(t.disp)} </span>`).join('');
 }
 
 function dScr(s,c){
+  const fz=mode!=='exact';
   const ta=tokenize(s),tb=tokenize(c);
-  const matches=bestMatches(ta.map(t=>t.n),tb.map(t=>t.n));
+  const matches=bestMatches(ta.map(t=>t.n),tb.map(t=>t.n),fz);
   const matchedB=new Set(matches.map(m=>m[1]));
   return tb.map((t,i)=>matchedB.has(i)?`<span class="wo">${esc(t.disp)} </span>`:`<span class="wf">${esc(t.disp)} </span>`).join('');
 }
