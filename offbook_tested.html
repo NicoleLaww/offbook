@@ -1220,6 +1220,7 @@ function goReh(){
   cur=0;nCleared=0;passed=false;mode='word';
   document.querySelectorAll('.mp').forEach((b,i)=>b.classList.toggle('on',i===1));
   buildReh();updProg();show('reh-screen');scrollCur();updNavBtns();updateVoiceBtn();
+  getMic().catch(()=>{}); // warm the mic now so the first take starts instantly
 }
 
 function buildReh(){
@@ -1258,7 +1259,15 @@ function scrollCur(){
 }
 
 // RECORDING
-let mr=null,chunks=[],recording=false,str=null,spaceDown=false,recMime='audio/webm';
+let mr=null,chunks=[],recording=false,str=null,spaceDown=false,recMime='audio/webm',micStream=null;
+// Keep the mic open across takes so tapping to speak starts INSTANTLY (no
+// re-requesting the mic each time, which was clipping the first word).
+async function getMic(){
+  if(micStream&&micStream.active)return micStream;
+  micStream=await navigator.mediaDevices.getUserMedia({audio:true});
+  return micStream;
+}
+function releaseMic(){if(micStream){try{micStream.getTracks().forEach(t=>t.stop());}catch(e){}micStream=null;}}
 
 // Pick a recording format the browser actually supports. Safari/iOS records
 // audio/mp4, Chrome records audio/webm — we must send Whisper the real one.
@@ -1288,7 +1297,7 @@ async function startRec(e){
   if(passed||recording)return;
   document.getElementById('cmp').classList.remove('show');
   passed=false;
-  try{str=await navigator.mediaDevices.getUserMedia({audio:true});}
+  try{str=await getMic();}
   catch(err){setSt('⚠ Mic blocked — allow microphone access');return;}
   chunks=[];const mime=pickMime();mr=mime?new MediaRecorder(str,{mimeType:mime}):new MediaRecorder(str);recMime=mr.mimeType||mime||'audio/webm';
   mr.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data);};
@@ -1300,7 +1309,7 @@ async function stopRec(e){
   if(e&&e.preventDefault)e.preventDefault();
   if(!recording)return;recording=false;
   const b=document.getElementById('ptt');b.textContent='🎤  Tap to Speak';b.classList.remove('on');b.classList.add('wait');
-  setSt('⏳ Transcribing...');mr.stop();str.getTracks().forEach(t=>t.stop());
+  setSt('⏳ Transcribing...');mr.stop();// keep mic open for an instant next take
   await new Promise(res=>mr.onstop=res);
   await doWhisper(new Blob(chunks,{type:recMime}));
   b.classList.remove('wait');
@@ -1621,8 +1630,8 @@ function updProg(){const pct=(nCleared/RL.length)*100;document.getElementById('p
 function setMode(m,el){mode=m;document.querySelectorAll('.mp').forEach(b=>b.classList.remove('on'));el.classList.add('on');if(lastSpoken&&document.getElementById('cmp').classList.contains('show'))evalLine(lastSpoken);}
 function setSt(msg){document.getElementById('dst').textContent=msg;}
 function closeCmp(){document.getElementById('cmp').classList.remove('show');stopAudio();}
-function goEdit(){document.getElementById('cmp').classList.remove('show');stopAudio();show('script-screen');}
-function showDone(){show('done-screen');document.getElementById('dscore').textContent=`${nCleared} of ${RL.length} lines cleared · ${Math.round(nCleared/RL.length*100)}% accuracy`;}
+function goEdit(){document.getElementById('cmp').classList.remove('show');stopAudio();releaseMic();show('script-screen');}
+function showDone(){releaseMic();show('done-screen');document.getElementById('dscore').textContent=`${nCleared} of ${RL.length} lines cleared · ${Math.round(nCleared/RL.length*100)}% accuracy`;}
 function restart(){cleared.fill(false);cur=0;nCleared=0;passed=false;mode='word';document.querySelectorAll('.mp').forEach((b,i)=>b.classList.toggle('on',i===1));updProg();buildReh();show('reh-screen');scrollCur();}
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function show(id){['step-key','step-upload','script-screen','read-screen','reh-screen','done-screen'].forEach(s=>document.getElementById(s).style.display=s===id?'block':'none');}
