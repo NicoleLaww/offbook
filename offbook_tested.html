@@ -346,8 +346,8 @@
     <div style="display:flex;gap:10px;align-items:center">
       <div class="mps">
         <button class="mp" onclick="setMode('intention',this)">Intention</button>
-        <button class="mp" onclick="setMode('word',this)">Word</button>
-        <button class="mp on" onclick="setMode('exact',this)">Exact</button>
+        <button class="mp on" onclick="setMode('word',this)">Word</button>
+        <button class="mp" onclick="setMode('exact',this)">Exact</button>
       </div>
       <button class="ghost" id="voicebtn" onclick="toggleVoice()" title="Scene-partner voice">🔊 Free</button>
       <button class="ghost" onclick="goEdit()">← Edit</button>
@@ -416,7 +416,7 @@ window.dispatchEvent(new Event('pdfjsready'));
 let oai=localStorage.getItem('offbook_oai')||'';
 let gemKey=localStorage.getItem('offbook_gem')||'';
 let groqKey=localStorage.getItem('offbook_groq')||'';
-let SL=[],RL=[],cur=0,cleared=[],nCleared=0,mode='exact',passed=false;
+let SL=[],RL=[],cur=0,cleared=[],nCleared=0,mode='word',passed=false;
 
 // KEYS — multi-provider. Prefill any saved keys so they aren't re-typed.
 ['gem','groq','oai'].forEach(id=>{
@@ -1217,8 +1217,8 @@ function buildReadLines(){
 function goReh(){
   RL=SL.filter(l=>l.isMine);if(!RL.length)return;
   cleared=new Array(RL.length).fill(false);
-  cur=0;nCleared=0;passed=false;mode='exact';
-  document.querySelectorAll('.mp').forEach((b,i)=>b.classList.toggle('on',i===2));
+  cur=0;nCleared=0;passed=false;mode='word';
+  document.querySelectorAll('.mp').forEach((b,i)=>b.classList.toggle('on',i===1));
   buildReh();updProg();show('reh-screen');scrollCur();updNavBtns();updateVoiceBtn();
 }
 
@@ -1623,7 +1623,7 @@ function setSt(msg){document.getElementById('dst').textContent=msg;}
 function closeCmp(){document.getElementById('cmp').classList.remove('show');stopAudio();}
 function goEdit(){document.getElementById('cmp').classList.remove('show');stopAudio();show('script-screen');}
 function showDone(){show('done-screen');document.getElementById('dscore').textContent=`${nCleared} of ${RL.length} lines cleared · ${Math.round(nCleared/RL.length*100)}% accuracy`;}
-function restart(){cleared.fill(false);cur=0;nCleared=0;passed=false;mode='exact';document.querySelectorAll('.mp').forEach((b,i)=>b.classList.toggle('on',i===2));updProg();buildReh();show('reh-screen');scrollCur();}
+function restart(){cleared.fill(false);cur=0;nCleared=0;passed=false;mode='word';document.querySelectorAll('.mp').forEach((b,i)=>b.classList.toggle('on',i===1));updProg();buildReh();show('reh-screen');scrollCur();}
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function show(id){['step-key','step-upload','script-screen','read-screen','reh-screen','done-screen'].forEach(s=>document.getElementById(s).style.display=s===id?'block':'none');}
 </script>

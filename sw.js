@@ -1,6 +1,6 @@
 // OFFBOOK service worker — caches the app shell for offline launch.
 // Network-first so updates land immediately; cache is the offline fallback.
-const CACHE = 'offbook-v47';
+const CACHE = 'offbook-v48';
 const ASSETS = [
   './',
   './index.html',
