@@ -1628,18 +1628,29 @@ function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace
 function show(id){['step-key','step-upload','script-screen','read-screen','reh-screen','done-screen'].forEach(s=>document.getElementById(s).style.display=s===id?'block':'none');}
 </script>
 <script>
-// PWA: register the service worker AND auto-update — when a new version is
-// deployed, the new worker activates and the page reloads itself once, so you
-// always get the latest without manually reinstalling.
+// PWA: register the service worker and auto-update — but ONLY reload when the
+// user is idle on the landing/upload screens. Never yank them mid-rehearsal,
+// mid-recording, or mid-anything. A pending update applies next time they're
+// idle, or on the next app launch.
 if('serviceWorker' in navigator){
-  let refreshing=false;
-  navigator.serviceWorker.addEventListener('controllerchange',()=>{
-    if(refreshing)return;refreshing=true;location.reload();
-  });
+  let refreshing=false,pendingReload=false;
+  function safeToReload(){
+    if(typeof recording!=='undefined'&&recording)return false;
+    for(const id of ['script-screen','read-screen','reh-screen','done-screen','audio-modal','work-modal']){
+      const el=document.getElementById(id);
+      if(el&&(el.classList.contains('show')||el.style.display!=='none'&&el.style.display!==''))return false;
+    }
+    return true;
+  }
+  function applyUpdateIfIdle(){
+    if(pendingReload&&!refreshing&&safeToReload()){refreshing=true;location.reload();}
+  }
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{pendingReload=true;applyUpdateIfIdle();});
+  setInterval(applyUpdateIfIdle,4000);
   window.addEventListener('load',()=>{
     navigator.serviceWorker.register('sw.js').then(reg=>{
       reg.update();
-      setInterval(()=>reg.update(),60000); // check for updates periodically
+      setInterval(()=>reg.update(),120000); // check for updates periodically
     }).catch(()=>{});
   });
 }
