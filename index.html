@@ -138,22 +138,41 @@
   .score{font-family:'Syne',sans-serif;font-size:20px;margin-bottom:40px;}
   #audio-modal,#work-modal{position:fixed;inset:0;z-index:400;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;padding:20px;}
   #audio-modal.show,#work-modal.show{display:flex;}
+  #work-modal{padding:12px;}
+  #work-modal .am-card{max-width:1100px;width:100%;height:calc(100vh - 24px);max-height:none;padding:22px 28px;border-radius:12px;}
+  @media (max-width:720px){#work-modal{padding:0;} #work-modal .am-card{height:100vh;border-radius:0;padding:16px 14px;}}
   .wk-l{display:block;font-size:12px;color:var(--text);margin:14px 0 6px;}
   .wk-opt{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.05em;margin-left:4px;}
   #work-modal select,#work-modal textarea{width:100%;background:var(--s2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Mono',monospace;font-size:13px;padding:10px;line-height:1.5;}
   #work-modal textarea{resize:vertical;}
-  .wk-out{margin-top:14px;font-size:14px;line-height:1.7;color:var(--text);overflow-y:auto;flex:1;min-height:0;}
+  .wk-out{margin-top:14px;color:var(--text);overflow-y:auto;flex:1;min-height:0;padding-right:6px;}
   .wk-out:empty{display:none;}
-  .wk-out h4{font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);margin:18px 0 6px;}
-  .wk-msg-a{margin-bottom:14px;}
-  .wk-msg-a b{color:var(--amber);}
-  .wk-msg-a ul{margin:6px 0 6px 18px;}
-  .wk-msg-a li{margin-bottom:4px;}
-  .wk-msg-a p{margin-bottom:10px;}
-  .wk-msg-u{background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:8px 12px;margin:0 0 14px auto;max-width:85%;font-size:13px;color:var(--muted);width:fit-content;}
+  .wk-out h4{font-family:'Syne',sans-serif;font-weight:800;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin:22px 0 8px;}
+  .wk-msg-a{margin-bottom:20px;font-family:'Charter','Iowan Old Style','Georgia',ui-serif,serif;font-size:17px;line-height:1.6;color:var(--text);position:relative;}
+  .wk-msg-a b,.wk-msg-a strong{color:var(--amber);font-weight:700;}
+  .wk-msg-a ul{margin:8px 0 12px 20px;}
+  .wk-msg-a li{margin-bottom:6px;}
+  .wk-msg-a p{margin-bottom:12px;}
+  .wk-msg-a .wk-compass{font-family:'DM Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.03em;background:rgba(167,139,250,.08);border-left:3px solid var(--accent);padding:8px 12px;margin-bottom:6px;border-radius:0 6px 6px 0;}
+  .wk-msg-u{background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:8px 28px 8px 12px;margin:0 0 14px auto;max-width:85%;font-size:13px;color:var(--muted);width:fit-content;font-family:'DM Mono',monospace;position:relative;}
+  .wk-msg-edit{position:absolute;top:0;right:0;background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;padding:2px 6px;opacity:.5;transition:opacity .15s;font-family:'DM Mono',monospace;}
+  .wk-msg-a:hover .wk-msg-edit,.wk-msg-u:hover .wk-msg-edit{opacity:1;}
+  .wk-edit-ta{width:100%;background:var(--s2);border:1px solid var(--accent);border-radius:8px;color:var(--text);font-family:'Charter','Georgia',ui-serif,serif;font-size:15px;padding:12px;line-height:1.6;resize:vertical;min-height:120px;margin-bottom:8px;}
+  .wk-edit-actions{display:flex;gap:6px;margin-bottom:14px;}
+  .wk-edit-actions button{font-family:'DM Mono',monospace;font-size:11px;padding:6px 12px;background:var(--s2);border:1px solid var(--border);color:var(--text);border-radius:6px;cursor:pointer;}
+  .wk-edit-actions .wk-edit-save{border-color:var(--accent);color:var(--accent);}
   #work-modal #wk-msg{width:100%;background:var(--s2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Mono',monospace;font-size:13px;padding:10px;line-height:1.5;resize:vertical;}
-  .wk-actions{display:flex;gap:8px;margin-top:10px;align-items:center;}
+  .wk-actions{display:flex;gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap;}
+  .wk-actions-secondary{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;}
+  .wk-actions-secondary button{font-size:11px;padding:6px 10px;}
   .wk-p2{display:block;width:100%;margin-bottom:8px;border-color:var(--accent);color:var(--accent);}
+  #job-pill{position:fixed;bottom:20px;right:20px;z-index:500;background:#161616;border:1px solid var(--accent);border-radius:10px;padding:12px 14px;box-shadow:0 12px 40px rgba(0,0,0,.6);font-family:'DM Mono',monospace;font-size:12px;color:var(--text);display:none;align-items:center;gap:12px;max-width:calc(100vw - 40px);}
+  #job-pill.show{display:flex;}
+  #job-pill.done{border-color:#22c55e;}
+  #job-pill .jp-status{line-height:1.4;}
+  #job-pill .jp-cancel{background:none;border:1px solid var(--border);color:var(--muted);font-size:11px;padding:4px 10px;border-radius:6px;cursor:pointer;font-family:'DM Mono',monospace;}
+  #job-pill .jp-cancel:hover{color:var(--text);border-color:var(--text);}
+  .am-hint{font-size:10px;color:var(--muted);margin-top:6px;text-align:center;line-height:1.4;font-style:italic;}
   .am-card{position:relative;background:#161616;border:1px solid var(--border);border-radius:14px;padding:26px 22px;width:100%;max-width:460px;box-shadow:0 20px 60px rgba(0,0,0,.7);max-height:90vh;overflow:auto;}
   .am-h{font-family:'Syne',sans-serif;font-weight:800;font-size:20px;margin-bottom:4px;}
   .am-sub{font-size:12px;color:var(--muted);margin-bottom:18px;line-height:1.6;}
@@ -261,7 +280,7 @@
 
 <!-- SCENE WORK -->
 <div id="work-modal">
-  <div class="am-card" style="max-width:580px;display:flex;flex-direction:column;max-height:90vh">
+  <div class="am-card" style="display:flex;flex-direction:column">
     <button class="cmp-x" onclick="closeWork()" aria-label="Close">✕</button>
     <h3 class="am-h">Scene work</h3>
     <div class="am-sub">A breakdown you can step into — then keep working it in conversation. Saved with the script.</div>
@@ -280,8 +299,13 @@
     </div>
     <div class="wk-actions">
       <button class="big" id="wk-go" onclick="sendWork()" style="flex:1">BREAK IT DOWN</button>
-      <button class="ghost" id="wk-export" onclick="exportWork()" style="display:none">Export</button>
-      <button class="ghost" id="wk-reset" onclick="resetWork()" style="display:none">Start over</button>
+    </div>
+    <div class="wk-actions-secondary" id="wk-secondary" style="display:none">
+      <button class="ghost" onclick="copyWork()" title="Copy to clipboard">📋 Copy</button>
+      <button class="ghost" onclick="downloadWorkMd()" title="Download as Markdown">⬇ Download .md</button>
+      <button class="ghost" onclick="resetWork()">↻ Start over</button>
+      <span style="flex:1"></span>
+      <span style="font-size:10px;color:var(--muted);align-self:center">Hover any block to edit ✏️</span>
     </div>
     <div class="am-status" id="wk-status"></div>
   </div>
@@ -320,9 +344,15 @@
       <button class="ghost" id="am-play" onclick="playFree()" style="flex:1">▶ Play (free)</button>
       <button class="big" id="am-go" onclick="makeAudio()" style="flex:1">⬇ Download</button>
     </div>
-    <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.5">Play uses your device's free voice. Download uses OpenAI (saved file, costs a few cents).</div>
+    <div class="am-hint">Play uses your device's free voice. Download uses OpenAI (~a few cents). Same settings won't charge again — audio is saved locally.</div>
     <div class="am-status" id="am-status"></div>
   </div>
+</div>
+
+<!-- BACKGROUND AUDIO STATUS PILL -->
+<div id="job-pill">
+  <div class="jp-status">Working…</div>
+  <button class="jp-cancel" onclick="cancelAudio()">Cancel</button>
 </div>
 
 <!-- READ-THROUGH -->
@@ -363,8 +393,8 @@
   <div id="cmp">
     <button class="cmp-x" onclick="closeCmp()" title="Close" aria-label="Close">✕</button>
     <div class="cb" id="cbanner"></div>
-    <div class="cr"><span class="cl y">You</span><div id="cyou"></div></div>
-    <div class="cr"><span class="cl s">Script</span><div id="cscr"></div></div>
+    <div class="cr"><span class="cl y">You said</span><div id="cyou"></div></div>
+    <div class="cr scr-row"><span class="cl s">✓ The line</span><div id="cscr"></div></div>
     <div class="clegend"><span class="ww">strikethrough</span> = you said it wrong &nbsp;·&nbsp; <span class="wf">underlined</span> = in the script, you missed or changed it</div>
     <div class="cba">
       <button class="ghost" onclick="tryAgain()">Try again</button>
@@ -847,23 +877,52 @@ function updCount(){
 // ===== SCENE WORK (craft breakdown) =====
 const CRAFT_PROMPT=`You are doing an actor's script work. You apply three craft lenses — Mamet's action/verb, Meisner's moment-to-moment truth, and McKee's value-and-structure — as ONE synthesized voice. The actor pastes in a scene (sides/script) and a character or casting breakdown and tells you who they're playing. You hand back a breakdown they can step straight into.
 
-THE ONE RULE: Synthesize, never debate. Never write "Mamet would say… but McKee counters…", never assign lines to named voices, never present competing skeletons and ask the actor to choose. You have the argument internally and deliver one clean answer. If two lenses conflict on a specific choice, pick the more playable one (the verb usually wins ties) and move on. The actor is an advanced practitioner — talk to them like a peer, warm and direct, no theory for its own sake.
+THE ACTOR — she admires: Helena Bonham Carter (physical eccentricity, oddness as truth), Emily Hampshire (dry precision, minor-key detail), Alan Rickman (voice, pauses, thought before speech), Meryl Streep (obsessive research, accent, posture as character), Heath Ledger (total inhabitation, physical commitment), Jacob Elordi (stillness, height as presence). When a load-in strategy maps to one of them, name it. She learns by pattern — reference-anchoring accelerates her work.
+
+THE ONE RULE: Synthesize, never debate. Never write "Mamet would say… but McKee counters…", never assign lines to named voices, never present competing skeletons and ask the actor to choose. You have the argument internally and deliver one clean answer. If two lenses conflict on a specific choice, pick the more playable one (the verb usually wins ties) and move on. The actor is an advanced practitioner — talk to them like a peer, warm and direct, no theory for its own sake. Banned in the response: "perhaps," "one could argue," "you might consider." This actor debates — she'd rather have a strong wrong read to correct than a soft right one to shrug at. Take the position. Where the position needs facts you don't have (a casting director's taste, a room's rules, who else got called in), ASK one sharp clarifier — do not fake confidence.
 
 THE THREE LENSES (tools, not characters — use all three every scene):
 - THE VERB (what you're DOING). Every beat gets one transitive verb aimed at the scene partner: to hook her, to trap her, to break her. Not a mood, adjective, or result. "Scary"/"triumphant" are banned in the margin. Test: could you do it to a person? One target — the partner; everything else is weather. When a verb stops working, do it harder or switch verbs — never retreat.
 - THE EYES (what you're WATCHING). Pair every verb with whose face the actor reads and what they're looking for — the data that tells them if the verb is landing, moment to moment, so they react to what's there, not their plan. Name the emotional preparation: what to walk in already carrying before the first line. Never tell them to "play not-knowing" or "play ambiguity" — not playable.
 - THE STRUCTURE (what's at STAKE, where it TURNS). Name the value as a charged pair (locked-out -> owns-the-room). Mark the opening value, the turn/climax, and the gaps — where the character expects one thing and gets another, because that's where the verb escalates or pivots. Keep it light in the beat sheet: the map, not the performance.
 
-BEFORE BUILDING, ask only what you need (one or two sharp questions, never an interview): the actual sides if only a description was given; which character; what the scene partner gives (the scene is reactive); genre/tone/casting context for register; the actor's own instinct if they have one. Don't run a Socratic drill — get what you need and go. If you have the scene and the character, GO — do not ask questions you can answer from the text.
+BEFORE BUILDING, ask only what you need (one or two sharp questions, never an interview). Useful clarifiers when they're missing: the actual sides if only a description was given; which character; page count / total pages of the sides; episode + season if TV; who's casting / directing / writing / running the show; what she's been getting seen for lately (the audition is a signal); who else is going out for the same role if she knows any (friend spread = huge intel); genre / tone / period / subculture context if it isn't obvious; her own instinct if she has one. Don't run a Socratic drill — get what you need and go. If you have the scene and the character, GO — do not ask questions you can answer from the text.
 
-OUTPUT (conversational prose; bullets only for real lists; bold the verbs with **double asterisks**; use ## headers for the five sections):
+OPEN WITH THE COMPASS. Every scene sits on the fuck-or-fight spectrum. The FIRST LINE of your response, before any section headers, names it. Format: "COMPASS: [FUCK / FIGHT / FUCK-leaning / FIGHT-leaning / FUCK dressed as FIGHT / FIGHT dressed as FUCK] — [one line naming what the character is actually trying to do to the partner]." Two drives can coexist but ONE leads — pick the lead. "Either" is not playable. If it looks 50/50, tie-break with what serves the scene's stakes.
+
+THEN NAME THE UNSPOKEN OFFER. Second line, before the section headers. Every alive character walks into every scene wanting something from the partner they can't ask for directly — if they could ask, there'd be no scene. Format: "UNSPOKEN OFFER: [the one thing this character walks in needing from the partner but would never say out loud — a covert plea, offer, or threat under the whole scene]." Compass + Offer = a two-line north star the actor plays the whole scene off of.
+
+Everything downstream — the spine, the verbs, the beats — inherits from those two readings. If a section drifts off-compass, the compass wins and the section gets rewritten.
+
+OUTPUT (conversational prose; bullets only for real lists; bold the verbs with **double asterisks**; use ## headers for the seven sections after the two-line opener):
 1. THE PERSON — who they are with the casting-breakdown clichés stripped off. Name the clichés, then get underneath to a survival logic rooted in the actor's truthful response. Name the traps (readings that send an actor into their head — usually "play the wound/insecurity/backstory") and what to play instead (the want, the action).
 2. THE SPINE — one sentence: the through-line action, aimed at the partner.
 3. WHAT'S LOCKED — bulleted givens, grouped: Character / Scene (the engine: what's the obstacle, what's it fuel for; the stakes; the turn; anything premeditated) / World (genre/tone/register).
-4. THE BEATS — one per beat: "Beat N — [what happens]. Verb: to **[transitive verb]**. [The action aimed at the partner, plus the gap if one opens — expected X, got Y, so the verb escalates/pivots.] Watch: [whose face, what you're reading, what it tells you next.]"
-5. WHAT TO CHASE NEXT — two or three threads (fatal flaw, what the partner gives, a moment for rehearsal). Offer to take one; don't dump all.
+4. THE HOMEWORK — dissect this before you play a single beat. The actor gets to be a detective here. Give her everything you can infer from the sides + what she told you, and name what's missing that would unlock more. Sub-parts fire only when there's real data — a short honest homework section beats an invented one.
+  - STORY POSITION: where does this scene sit? Page X of Y if she gave you a page count; episode / season / arc position if TV (pilot / midpoint / penultimate / finale / bottle / one-off); where in the CHARACTER'S arc this beat likely lands (intro, first fracture, crisis, reversal, resolution). Why position changes the read — a finale scene plays different than a pilot scene of the same words. If she only gave you the sides with no context, say what you'd need to know.
+  - THE ROOM (who's behind it): if she named a casting director, director, writer, showrunner, network, or platform — decode what THIS room tends to reward. Grounded vs. heightened. Naturalism vs. stylization. Comparable projects that tell them "this actor gets it." What tape length / slate energy / risk tolerance the room usually reads. IF YOU DON'T KNOW THE PERSON, say so cleanly and ask one clarifier — do not fabricate credits, taste, or past projects. Blank beats wrong.
+  - WHY YOU (why she's in this room): the audition is a signal. Use what you can — her IMDb, demo reel, or self-reported "what tape got me seen lately." Ask WHO ELSE is going out for the same role if she knows any friends up for it: 3 similar-looking actors called in = the room has a specific vision, execution decides it; 3 very different actors called in = the room is EXPLORING and she gets to define the type. Whatever you know, name what casting probably wants FROM HER specifically — the quality that got her in the room — and tell her to lean INTO it, not disappear into the breakdown. SKIP this section entirely if there's no real data — better to ask ONE clarifier ("what have they been calling you in for lately, and do you know who else got these sides?") than to fabricate signals.
+  - THE WORLD LOAD-IN: what the role's job / class / era / subculture actually looks like from inside. Fire when the role has a specific world; skip when it's just "person in a room."
+    * THE TELL: what an actor who skipped this gets caught doing (usually the pop-culture fantasy of the role).
+    * LOAD IN: 2-3 specific things to carry into the body / voice / behavior BEFORE rehearsal — physical, behavioral, linguistic.
+    * GO FIND: 2-3 specific sources — a documentary, a memoir, a scene that got it right, a subreddit, an interview, a photo archive.
+    * THE TRAP: fantasy version vs. what actually lives. Call the difference sharply.
+  - REFERENCE CLIPS: 2-3 specific performances or scenes worth studying for THIS beat / register / physicality — with a one-line WHY each. Prefer a named scene ("the diner scene in Heat") over "watch X actor." She can watch a 2-minute clip; she can't rewatch a whole career.
+  - WHAT'S MISSING: if a load-bearing detail wasn't provided (page count, episode, casting/directing name, tone reference), name it and ask ONE sharp clarifier. Not three.
+5. THE BEATS — one per beat: "Beat N — [what happens]. Verb: to **[transitive verb]**. [The action aimed at the partner, plus the gap if one opens — expected X, got Y, so the verb escalates/pivots.] Watch: [whose face, what you're reading, what it tells you next.] Subtext: [what she's actually saying underneath the line — the covert offer, threat, or plea]. Text-vs-subtext gap: [where they diverge — the sharper the gap, the more the beat sings]." When text and subtext match, the line is information; when they diverge, the actor plays the gap — that's where the performance lives.
+6. THE SWING (optional — never force). Some tapes have a specific bet worth taking that most actors won't. Some don't. If nothing earns a swing, SAY SO plainly — "no swing worth taking here, play the truth end to end" — and skip the section. A forced swing is worse than no swing. When a swing IS worth taking, it lives in one of two layers:
+  - PERFORMANCE SWING: one beat played in a way the reader didn't predict — and only when the counter-choice is TRUER than the surface (see: What Nine Actors Will Miss). The whisper on the line everyone shouts. The laugh on the moment everyone cries. The turn AWAY from camera when everyone turns in. One beat, named — because if you don't plan it, you won't take it under pressure.
+  - PRODUCTION SWING: a self-tape-era move the actor-as-editor can take when the scene invites it and the room allows it:
+    * Music editing — a low music bed under a club/party/car scene, or a needle-drop cut that lands on a line
+    * Adlib — one specific line the character would say between the written lines, when adlibs match the show's register (TikToker cadence for Gen-Z sides, an overheard-in-real-life throwaway for grounded shows)
+    * Ambient / sound — noise that changes the room, a smash into silence, a phone buzz on the wrong line
+    * A cut — a hard cut mid-thought to imply time passed, when the scene supports it
+  Production swings calibrate to THE ROOM. Some casting directors ban music and adlibs and want dry tape; some rooms reward production choices. If you don't know the room's submission policy, flag it. Both layers are OPTIONAL — naming zero swings is a valid answer. When you do name one, be specific: beat, choice, and one line on WHY IT'S TRUER, not just riskier.
+7. WHAT TO CHASE NEXT — two or three threads (fatal flaw, what the partner gives, a moment for rehearsal). Offer to take one; don't dump all.
 
 CRAFT RULES: Verbs are transitive and aimed at one person — the room is leverage, the partner is the mark. Resistance is fuel, not obstacle. Don't play psychology, the wound, or the result. Commit to the action fully and let the audience hold any ambiguity. Preparation lives before the first line. The line comes out of the partner's behavior, not the plan. Grounded genres get no telegraphing.
+
+WHAT NINE ACTORS WILL MISS. Every scene has an obvious surface read the casting breakdown almost tells you to play — the default that 9 out of 10 actors will hit. Name that default explicitly (the "sappy victim," the "angry lover," the "hurt best friend"). Then name the TRUER read most actors flinch past because it doesn't match the cliché: the STRENGTH inside the survivor, the TENDERNESS inside the villain, the SHAME under the rage, the CALM under the crisis. Not opposite as stunt — the read that's actually more honest to the character's real survival logic. This is where the booking happens. Never play the caption of the scene; play the person inside it.
 
 === TWO PHASES ===
 Everything above is PHASE 1 — The Breakdown (what the scene needs: spine, locked points, beat sheet). What follows is PHASE 2 — Bringing Myself To It (what the actor brings). Same engine, same three lenses. Do Phase 1 first, or use a breakdown the actor already has, then move to Phase 2 when they're ready to put themselves in. The actor may also jump straight to Phase 2 with homework done.
@@ -950,13 +1009,47 @@ function setWork(char,thread){
   if(curName){const arr=loadSaved();const s=arr.find(x=>x.name===curName);if(s){s.work=s.work||{};s.work[char]=thread;writeSaved(arr);return;}}
   _sessionWork[(curName||'demo')+'|'+char]=thread;
 }
+let _editingIdx=-1;
 function renderThread(thread){
   const out=document.getElementById('wk-out');
-  out.innerHTML=((thread&&thread.messages)||[]).map((m,i)=>
-    m.role==='assistant'?`<div class="wk-msg-a">${mdToHtml(m.content)}</div>`
-    :`<div class="wk-msg-u">${i===0?'▸ Breakdown request':esc(m.content)}</div>`
-  ).join('');
+  const msgs=(thread&&thread.messages)||[];
+  out.innerHTML=msgs.map((m,i)=>{
+    // Skip the auto-generated first user prompt (script + character context) — internal, not shown
+    if(m.role==='user' && i===0) return '';
+    if(_editingIdx===i){
+      return `<div class="wk-msg-a"><textarea class="wk-edit-ta" id="wk-edit-ta-${i}">${esc(m.content)}</textarea><div class="wk-edit-actions"><button class="wk-edit-save" onclick="saveEditMessage(${i})">✓ Save</button><button onclick="cancelEditMessage()">Cancel</button></div></div>`;
+    }
+    if(m.role==='assistant'){
+      return `<div class="wk-msg-a">${mdToHtml(m.content)}<button class="wk-msg-edit" onclick="editMessage(${i})" title="Edit this block">✏️ edit</button></div>`;
+    }
+    return `<div class="wk-msg-u">${esc(m.content)}<button class="wk-msg-edit" onclick="editMessage(${i})" title="Edit">✏️</button></div>`;
+  }).join('');
   out.scrollTop=out.scrollHeight;
+}
+function editMessage(idx){
+  _editingIdx=idx;
+  const char=document.getElementById('wk-char').value;
+  renderThread(getWork(char));
+  const ta=document.getElementById('wk-edit-ta-'+idx);
+  if(ta){ta.focus();ta.style.height=Math.max(160,ta.scrollHeight)+'px';}
+}
+function saveEditMessage(idx){
+  const char=document.getElementById('wk-char').value;
+  const thread=getWork(char);
+  const ta=document.getElementById('wk-edit-ta-'+idx);
+  if(ta && thread && thread.messages[idx]){
+    thread.messages[idx].content=ta.value;
+    setWork(char,thread);
+  }
+  _editingIdx=-1;
+  renderThread(getWork(char));
+  document.getElementById('wk-status').textContent='✓ Saved edit';
+  setTimeout(()=>{const s=document.getElementById('wk-status');if(s.textContent==='✓ Saved edit')s.textContent='';},2500);
+}
+function cancelEditMessage(){
+  _editingIdx=-1;
+  const char=document.getElementById('wk-char').value;
+  renderThread(getWork(char));
 }
 function loadThread(){
   const char=document.getElementById('wk-char').value;
@@ -964,10 +1057,10 @@ function loadThread(){
   const has=!!(thread&&thread.messages&&thread.messages.length);
   document.getElementById('wk-setup').style.display=has?'none':'block';
   document.getElementById('wk-followup').style.display=has?'block':'none';
-  document.getElementById('wk-export').style.display=has?'inline-block':'none';
-  document.getElementById('wk-reset').style.display=has?'inline-block':'none';
+  const sec=document.getElementById('wk-secondary');if(sec)sec.style.display=has?'flex':'none';
   document.getElementById('wk-go').textContent=has?'SEND →':'BREAK IT DOWN';
   document.getElementById('wk-status').textContent='';
+  _editingIdx=-1;
   renderThread(thread);
 }
 async function sendWork(){
@@ -1006,14 +1099,34 @@ function phase2(){
     sendWork();
   }
 }
-function exportWork(){
+function workToText(thread){
+  return thread.messages.map((m,i)=>{
+    if(m.role==='user' && i===0) return null; // skip auto-generated first prompt
+    if(m.role==='assistant') return m.content;
+    return '> '+m.content;
+  }).filter(Boolean).join('\n\n———\n\n');
+}
+async function copyWork(){
   const char=document.getElementById('wk-char').value,thread=getWork(char);if(!thread)return;
-  const txt=thread.messages.map((m,i)=>m.role==='assistant'?m.content:(i===0?'[Breakdown request]':'> '+m.content)).join('\n\n———\n\n');
-  const full=`OFFBOOK — Scene work: ${char}\n${curName||''}\n\n`+txt;
-  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([full],{type:'text/plain'}));
-  a.download=((curName||'offbook').replace(/\.pdf$/i,''))+'_'+char+'_breakdown.txt';document.body.appendChild(a);a.click();a.remove();
-  if(navigator.clipboard)navigator.clipboard.writeText(txt).catch(()=>{});
-  document.getElementById('wk-status').textContent='✓ Exported (and copied to clipboard)';
+  const full=`# OFFBOOK — Scene work: ${char}\n\n**Script:** ${curName||'—'}\n\n---\n\n`+workToText(thread);
+  const st=document.getElementById('wk-status');
+  try{
+    await navigator.clipboard.writeText(full);
+    st.textContent='✓ Copied to clipboard';
+  }catch(e){
+    st.textContent='⚠ Couldn\'t copy — select the text manually';
+  }
+  setTimeout(()=>{if(st.textContent.startsWith('✓ Copied'))st.textContent='';},3000);
+}
+function downloadWorkMd(){
+  const char=document.getElementById('wk-char').value,thread=getWork(char);if(!thread)return;
+  const full=`# OFFBOOK — Scene work: ${char}\n\n**Script:** ${curName||'—'}\n\n---\n\n`+workToText(thread);
+  const fname=((curName||'offbook').replace(/\.pdf$/i,''))+'_'+char+'_breakdown.md';
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([full],{type:'text/markdown'}));
+  a.download=fname;document.body.appendChild(a);a.click();a.remove();
+  const st=document.getElementById('wk-status');
+  st.textContent='✓ Downloaded '+fname;
+  setTimeout(()=>{if(st.textContent.startsWith('✓ Downloaded'))st.textContent='';},3000);
 }
 function resetWork(){
   const char=document.getElementById('wk-char').value;
@@ -1117,10 +1230,10 @@ function readerVoice(){
   const instr=`Speak like a relaxed, natural ${a} ${noun} ${ageDesc}, casually reading lines aloud to help a friend run their scene. ${genderLock} Easygoing, conversational, human — plain everyday speech at a normal pace. Do NOT perform, act, or dramatize: no theatrical or emotional emphasis, no big swings, no character voices. Just say the words simply and naturally, the way you'd read a text message out loud.`;
   return {base,instr,sig:g+'|'+a+'|'+age+'|nat3'};
 }
-async function ttsBlob(text,voice,key,instr){
+async function ttsBlob(text,voice,key,instr,signal){
   const call=(body)=>fetch('https://api.openai.com/v1/audio/speech',{
     method:'POST',headers:{'Authorization':'Bearer '+key,'Content-Type':'application/json'},
-    body:JSON.stringify(body)
+    body:JSON.stringify(body),signal:signal
   });
   // Try the steerable voice; if this account can't use it, fall back to tts-1.
   let r = instr ? await call({model:'gpt-4o-mini-tts',input:text,voice,instructions:instr})
@@ -1145,46 +1258,103 @@ async function idbGet(k){try{const db=await idbOpen();return await new Promise(r
 async function idbSet(k,v){try{const db=await idbOpen();await new Promise(res=>{const t=db.transaction('audio','readwrite').objectStore('audio').put(v,k);t.onsuccess=()=>res();t.onerror=()=>res();});}catch(e){}}
 function dlBlob(blob,fname){const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=fname;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),4000);}
 
+// ===== JOB PILL (background audio work) =====
+let _audioJob=null;
+function ensureNotificationPermission(){
+  if(!('Notification' in window))return;
+  if(Notification.permission==='default'){try{Notification.requestPermission().catch(()=>{});}catch(e){}}
+}
+function showJobPill(msg,cancelable){
+  const pill=document.getElementById('job-pill');if(!pill)return;
+  pill.querySelector('.jp-status').textContent=msg;
+  pill.querySelector('.jp-cancel').style.display=cancelable?'inline-block':'none';
+  pill.classList.remove('done');pill.classList.add('show');
+}
+function updateJobPill(msg){
+  const pill=document.getElementById('job-pill');if(!pill)return;
+  pill.querySelector('.jp-status').textContent=msg;
+}
+function finishJobPill(msg){
+  const pill=document.getElementById('job-pill');if(!pill)return;
+  pill.querySelector('.jp-status').textContent=msg;
+  pill.querySelector('.jp-cancel').style.display='none';
+  pill.classList.add('done');
+  setTimeout(()=>{if(pill.classList.contains('done')){pill.classList.remove('show');pill.classList.remove('done');}},6000);
+}
+function hideJobPill(){
+  const pill=document.getElementById('job-pill');if(!pill)return;
+  pill.classList.remove('show');pill.classList.remove('done');
+}
+function cancelAudio(){
+  if(_audioJob && _audioJob.ctrl){_audioJob.cancelled=true;_audioJob.ctrl.abort();}
+  hideJobPill();
+}
+function notifyDone(title,body){
+  try{
+    if('Notification' in window && Notification.permission==='granted'){
+      const n=new Notification(title,{body,icon:'icon-192.png',tag:'offbook-audio'});
+      n.onclick=()=>{window.focus();n.close();};
+    }
+  }catch(e){}
+}
+
 async function makeAudio(){
   if(!oai){document.getElementById('am-status').textContent='Add your OpenAI key (the voices use TTS).';return;}
   const gap=parseFloat(document.getElementById('gap').value)||0.8;
-  const go=document.getElementById('am-go'),st=document.getElementById('am-status');
+  const st=document.getElementById('am-status');
   const names={reader:'reader-track',mine:'my-lines',both:'full-scene'};
   const fname=(curName?curName.replace(/\.pdf$/i,''):'offbook')+'_'+names[audioMode]+'.wav';
   const rv=readerVoice();
   const mineSig=SL.filter(l=>l.isMine).map(l=>l.id).join('.');
   const key=(curName||'demo')+'|'+audioMode+'|'+gap+'|'+rv.sig+'|'+SL.length+'|'+mineSig;
-  go.disabled=true;
+
+  // Cache hit: no network, no pill — just re-download instantly.
   try{
     const cached=await idbGet(key);
-    if(cached){dlBlob(cached,fname);st.textContent='✓ Reused saved audio — no charge';go.disabled=false;return;}
+    if(cached){dlBlob(cached,fname);st.textContent='✓ Reused saved audio — no charge';return;}
+  }catch(e){}
+
+  // Not cached — close the modal, run in the background with a status pill.
+  ensureNotificationPermission();
+  closeAudio();
+  const ctrl=new AbortController();
+  _audioJob={ctrl,cancelled:false,fname};
+  showJobPill('🎧 Making audio…',true);
+
+  try{
     const ac=new (window.AudioContext||window.webkitAudioContext)();
     if(ac.state==='suspended')await ac.resume();
     const sr=ac.sampleRate;
     const voices=['nova','onyx','shimmer','echo','fable','alloy'];
     const chars=[...new Set(SL.map(l=>l.char))];
     const voiceFor=c=>voices[Math.max(0,chars.indexOf(c))%voices.length];
-    // Build the plan (smart gaps), then assign a voice to each spoken segment.
     const segs=audioSegs(gap).map(s=> s.sil!=null ? s : {text:s.say,voice:audioMode==='both'?voiceFor(s.char):rv.base});
     const todo=segs.filter(s=>s.text).length;
-    if(!todo){st.textContent='Nothing to generate for this option.';go.disabled=false;return;}
+    if(!todo){finishJobPill('Nothing to generate for this option.');_audioJob=null;return;}
     const decoded=[];let done=0;
     for(const s of segs){
+      if(ctrl.signal.aborted)throw new Error('cancelled');
       if(s.sil!=null){decoded.push({len:Math.round(s.sil*sr)});continue;}
-      st.textContent=`Recording line ${++done} of ${todo}…`;
-      const ab=await ac.decodeAudioData(await (await ttsBlob(s.text,s.voice,oai,rv.instr)).arrayBuffer());
+      updateJobPill(`🎧 Recording line ${++done} of ${todo}…`);
+      const ab=await ac.decodeAudioData(await (await ttsBlob(s.text,s.voice,oai,rv.instr,ctrl.signal)).arrayBuffer());
       decoded.push({data:ab.getChannelData(0)});
     }
-    st.textContent='Putting the track together…';
+    updateJobPill('🎧 Putting the track together…');
     let total=0;for(const d of decoded)total+=d.data?d.data.length:d.len;
     const out=new Float32Array(total);let off=0;
     for(const d of decoded){if(d.data){out.set(d.data,off);off+=d.data.length;}else off+=d.len;}
     const wav=encodeWAV(out,sr);
     await idbSet(key,wav);
     dlBlob(wav,fname);
-    st.textContent='✓ Saved & downloaded '+fname;
-  }catch(e){st.textContent='⚠ '+(/fetch/i.test(e.message)?'Couldn\'t reach OpenAI — check your key has credits':e.message);}
-  go.disabled=false;
+    finishJobPill('✓ Audio ready — saved to Downloads');
+    notifyDone('Offbook — audio ready','Saved to your Downloads. Same settings won\'t charge again.');
+  }catch(e){
+    if(_audioJob&&_audioJob.cancelled || e.name==='AbortError' || /cancelled/i.test(String(e))){
+      hideJobPill();
+    } else {
+      finishJobPill('⚠ '+(/fetch/i.test(e.message)?'Couldn\'t reach OpenAI — check your key':e.message));
+    }
+  } finally { _audioJob=null; }
 }
 
 function goRead(){
