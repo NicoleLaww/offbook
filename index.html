@@ -443,6 +443,32 @@ window.dispatchEvent(new Event('pdfjsready'));
 </script>
 
 <script>
+// ===== ARCHITECTURE (read this before editing) =====
+// One static HTML file, no build step, no backend. Deployed as-is to Vercel.
+// Every AI call happens client-side, straight from the browser to the
+// provider, using a key the actor pastes in and we keep in localStorage
+// (see saveKeys() below) — so API cost is always the user's own, never ours.
+//
+// Two independent features share this file:
+//  - Script upload + rehearsal (SL = script lines, RL = recorded lines):
+//    parseImageWithGPT / parseWithGPT turn a PDF into lines, doWhisper
+//    transcribes a take, ttsBlob reads a line aloud.
+//  - Scene work (the CRAFT_PROMPT chat further down): a running per-character
+//    thread, sent through craftLLM, saved on the script via getWork/setWork.
+//
+// All model names are centralized in MODELS right below — if a provider
+// retires a model (it happens, see git history), that's the only place to
+// change it. Check the provider's own deprecation/model-list page first,
+// don't guess a replacement name.
+const MODELS={
+  gemini:'gemini-3.6-flash',            // free public route: PDF parse + scene work chat
+  gptHeavy:'gpt-4o',                    // confidential route: first breakdown / Phase 2 kickoff
+  gptLight:'gpt-4o-mini',               // confidential route: follow-ups + script parsing (text & OCR)
+  ttsSteerable:'gpt-4o-mini-tts',       // voice with acting direction; falls back to ttsFallback
+  ttsFallback:'tts-1',
+  whisperGroq:'whisper-large-v3-turbo', // free, ~9x cheaper than OpenAI — used when a Groq key is set
+  whisperOpenAI:'whisper-1'
+};
 let oai=localStorage.getItem('offbook_oai')||'';
 let gemKey=localStorage.getItem('offbook_gem')||'';
 let groqKey=localStorage.getItem('offbook_groq')||'';
@@ -693,7 +719,7 @@ async function parseImageWithGPT(dataUrl){
     method:'POST',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+oai},
     body:JSON.stringify({
-      model:'gpt-4o-mini',
+      model:MODELS.gptLight,
       max_tokens:4096,
       response_format:{type:'json_object'},
       messages:[
@@ -737,8 +763,8 @@ async function parseWithGPT(chunk){
     method:'POST',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+oai},
     body:JSON.stringify({
-      // Text parsing is easy — use the much cheaper mini. (OCR stays on gpt-4o.)
-      model:'gpt-4o-mini',
+      // Text parsing is easy — use the much cheaper mini (OCR below also uses it now).
+      model:MODELS.gptLight,
       max_tokens:16384,
       response_format:{type:'json_object'},
       messages:[
@@ -799,7 +825,7 @@ function cleanGemErr(status,msg){
 async function geminiParse(text,dataUrl){
   const parts=[{text:GEMINI_RULES+(text?('\n\nScript text:\n'+text):'\n\nRead the dialogue from the attached screenplay page image.')}];
   if(dataUrl)parts.push({inline_data:{mime_type:'image/jpeg',data:dataUrl.split(',')[1]}});
-  const res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key='+encodeURIComponent(gemKey),{
+  const res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+MODELS.gemini+':generateContent?key='+encodeURIComponent(gemKey),{
     method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({contents:[{parts}],generationConfig:{responseMimeType:'application/json'},
       safetySettings:['HARM_CATEGORY_HARASSMENT','HARM_CATEGORY_HATE_SPEECH','HARM_CATEGORY_SEXUALLY_EXPLICIT','HARM_CATEGORY_DANGEROUS_CONTENT'].map(c=>({category:c,threshold:'BLOCK_NONE'}))})
@@ -983,7 +1009,7 @@ async function craftLLM(system,messages){
   if(uploadRoute==='free'){
     if(!gemKey)throw new Error('Public mode needs a free Gemini key.');
     const contents=messages.map(m=>({role:m.role==='assistant'?'model':'user',parts:[{text:m.content}]}));
-    const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key='+encodeURIComponent(gemKey),{
+    const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+MODELS.gemini+':generateContent?key='+encodeURIComponent(gemKey),{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({system_instruction:{parts:[{text:system}]},contents,
         safetySettings:['HARM_CATEGORY_HARASSMENT','HARM_CATEGORY_HATE_SPEECH','HARM_CATEGORY_SEXUALLY_EXPLICIT','HARM_CATEGORY_DANGEROUS_CONTENT'].map(c=>({category:c,threshold:'BLOCK_NONE'}))})
@@ -997,7 +1023,7 @@ async function craftLLM(system,messages){
   const isFirstBreakdown = messages.length===1;
   const lastUser = [...messages].reverse().find(m=>m.role==='user');
   const isPhase2Kickoff = lastUser && /phase\s*2/i.test(lastUser.content);
-  const model = (isFirstBreakdown || isPhase2Kickoff) ? 'gpt-4o' : 'gpt-4o-mini';
+  const model = (isFirstBreakdown || isPhase2Kickoff) ? MODELS.gptHeavy : MODELS.gptLight;
   const r=await fetch('https://api.openai.com/v1/chat/completions',{
     method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+oai},
     body:JSON.stringify({model,max_tokens:2000,messages:[{role:'system',content:system},...messages]})
@@ -1249,9 +1275,9 @@ async function ttsBlob(text,voice,key,instr,signal){
     body:JSON.stringify(body),signal:signal
   });
   // Try the steerable voice; if this account can't use it, fall back to tts-1.
-  let r = instr ? await call({model:'gpt-4o-mini-tts',input:text,voice,instructions:instr})
-                : await call({model:'tts-1',input:text,voice,speed:1.0});
-  if(!r.ok && instr) r = await call({model:'tts-1',input:text,voice,speed:1.0});
+  let r = instr ? await call({model:MODELS.ttsSteerable,input:text,voice,instructions:instr})
+                : await call({model:MODELS.ttsFallback,input:text,voice,speed:1.0});
+  if(!r.ok && instr) r = await call({model:MODELS.ttsFallback,input:text,voice,speed:1.0});
   if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error((e.error&&e.error.message)||('TTS '+r.status));}
   return r.blob();
 }
@@ -1506,7 +1532,7 @@ async function doWhisper(blob){
   const key=useGroq?groqKey:oai;
   const fd=new FormData();
   fd.append('file',blob,'audio.'+extFor(blob.type||recMime));
-  fd.append('model',useGroq?'whisper-large-v3-turbo':'whisper-1');
+  fd.append('model',useGroq?MODELS.whisperGroq:MODELS.whisperOpenAI);
   fd.append('language','en');
   // Prompt with character names only (helps spell names) — NOT the expected
   // line, so it transcribes what was actually said, not what's wanted.
@@ -1619,7 +1645,7 @@ async function speakText(text){
     const res=await fetch('https://api.openai.com/v1/audio/speech',{
       method:'POST',
       headers:{'Authorization':'Bearer '+oai,'Content-Type':'application/json'},
-      body:JSON.stringify({model:'tts-1',input:text,voice:'nova',speed:0.95})
+      body:JSON.stringify({model:MODELS.ttsFallback,input:text,voice:'nova',speed:0.95})
     });
     if(!ttsLoading)return false; // another call cancelled us while fetching
     if(!res.ok){const e=await res.json();throw new Error(e.error?.message||res.status);}
