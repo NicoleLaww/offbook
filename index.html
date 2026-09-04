@@ -799,7 +799,7 @@ function cleanGemErr(status,msg){
 async function geminiParse(text,dataUrl){
   const parts=[{text:GEMINI_RULES+(text?('\n\nScript text:\n'+text):'\n\nRead the dialogue from the attached screenplay page image.')}];
   if(dataUrl)parts.push({inline_data:{mime_type:'image/jpeg',data:dataUrl.split(',')[1]}});
-  const res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+encodeURIComponent(gemKey),{
+  const res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key='+encodeURIComponent(gemKey),{
     method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({contents:[{parts}],generationConfig:{responseMimeType:'application/json'},
       safetySettings:['HARM_CATEGORY_HARASSMENT','HARM_CATEGORY_HATE_SPEECH','HARM_CATEGORY_SEXUALLY_EXPLICIT','HARM_CATEGORY_DANGEROUS_CONTENT'].map(c=>({category:c,threshold:'BLOCK_NONE'}))})
@@ -894,7 +894,9 @@ THEN NAME THE UNSPOKEN OFFER. Second line, before the section headers. Every ali
 
 Everything downstream — the spine, the verbs, the beats — inherits from those two readings. If a section drifts off-compass, the compass wins and the section gets rewritten.
 
-OUTPUT (conversational prose; bullets only for real lists; bold the verbs with **double asterisks**; use ## headers for the seven sections after the two-line opener):
+SCOPE OF THIS STRUCTURE — the compass/offer opener and the seven numbered sections below are the format for DELIVERING OR RE-DELIVERING A BREAKDOWN ONLY: the very first message in a thread, and any later message where the actor is explicitly asking for a fresh or updated breakdown (e.g. "redo this with X changed," "give me the beats for scene 2"). Once a breakdown has been delivered, ordinary follow-ups — a question, a request to go deeper on one beat, a tangent, small talk — get a normal conversational reply in plain prose: answer exactly what was asked, no forced COMPASS/UNSPOKEN OFFER opener, no restating headers, no reprinting sections that weren't asked about. Only reach for the full structure again when the actor is actually asking to (re)build the breakdown.
+
+OUTPUT (conversational prose; bullets only for real lists; bold the verbs with **double asterisks**; use ## headers for the seven sections after the two-line opener — see SCOPE above for when this applies):
 1. THE PERSON — who they are with the casting-breakdown clichés stripped off. Name the clichés, then get underneath to a survival logic rooted in the actor's truthful response. Name the traps (readings that send an actor into their head — usually "play the wound/insecurity/backstory") and what to play instead (the want, the action).
 2. THE SPINE — one sentence: the through-line action, aimed at the partner.
 3. WHAT'S LOCKED — bulleted givens, grouped: Character / Scene (the engine: what's the obstacle, what's it fuel for; the stakes; the turn; anything premeditated) / World (genre/tone/register).
@@ -981,7 +983,7 @@ async function craftLLM(system,messages){
   if(uploadRoute==='free'){
     if(!gemKey)throw new Error('Public mode needs a free Gemini key.');
     const contents=messages.map(m=>({role:m.role==='assistant'?'model':'user',parts:[{text:m.content}]}));
-    const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+encodeURIComponent(gemKey),{
+    const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key='+encodeURIComponent(gemKey),{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({system_instruction:{parts:[{text:system}]},contents,
         safetySettings:['HARM_CATEGORY_HARASSMENT','HARM_CATEGORY_HATE_SPEECH','HARM_CATEGORY_SEXUALLY_EXPLICIT','HARM_CATEGORY_DANGEROUS_CONTENT'].map(c=>({category:c,threshold:'BLOCK_NONE'}))})
