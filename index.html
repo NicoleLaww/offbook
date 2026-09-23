@@ -278,7 +278,10 @@
 <div id="script-screen">
   <div class="sh">
     <div class="logo">OFF<span>BOOK</span></div>
-    <span id="fname" style="font-size:11px;color:var(--muted)"></span>
+    <div style="display:flex;gap:12px;align-items:center">
+      <span id="fname" style="font-size:11px;color:var(--muted)"></span>
+      <button class="ghost" onclick="goLibrary()">← Scripts</button>
+    </div>
   </div>
   <div class="tip"><strong>Click any line</strong> to mark it as yours — purple = hidden during rehearsal. Click again to unmark.</div>
   <div id="scene-tabs" class="scene-tabs" style="display:none"></div>
@@ -2087,6 +2090,10 @@ function setMode(m,el){mode=m;document.querySelectorAll('.mp').forEach(b=>b.clas
 function setSt(msg){document.getElementById('dst').textContent=msg;}
 function closeCmp(){document.getElementById('cmp').classList.remove('show');stopAudio();}
 function goEdit(){document.getElementById('cmp').classList.remove('show');stopAudio();releaseMic();show('script-screen');}
+// Back to the upload/saved-scripts screen without losing the saved script itself —
+// SL/curName stay as-is in memory, so re-loading the same script from the list
+// picks up right where you left off (isMine marks, scene splits, all preserved).
+function goLibrary(){show('step-upload');renderSaved();}
 function showDone(){releaseMic();show('done-screen');document.getElementById('dscore').textContent=`${nCleared} of ${RL.length} lines cleared · ${Math.round(nCleared/RL.length*100)}% accuracy`;}
 function restart(){cleared.fill(false);cur=0;nCleared=0;passed=false;mode='word';document.querySelectorAll('.mp').forEach((b,i)=>b.classList.toggle('on',i===1));updProg();buildReh();show('reh-screen');scrollCur();}
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
