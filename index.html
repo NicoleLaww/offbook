@@ -127,6 +127,7 @@
   .saved-h{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin-bottom:10px;}
   .saved-item{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:8px;}
   .saved-item .nm{flex:1;font-size:14px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .log-ta{width:100%;background:var(--s2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Mono',monospace;font-size:13px;padding:10px;line-height:1.5;margin-bottom:10px;resize:vertical;}
   .saved-item .mt{font-size:11px;color:var(--muted);}
   .saved-item button{background:var(--s2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'DM Mono',monospace;font-size:12px;padding:7px 12px;cursor:pointer;}
   .saved-item button.ld{border-color:var(--accent);color:var(--accent);}
@@ -273,6 +274,10 @@
       <div class="ro-d">Free (Gemini) — fine for public material</div>
     </div>
   </div>
+  <div id="rev-of-wrap" style="display:none;margin-bottom:16px">
+    <label class="klab" for="rev-of" style="display:block;margin-bottom:6px">Revision of an existing saved script? <span class="kfree">carries over unchanged scenes' work</span></label>
+    <select id="rev-of"><option value="">None — this is a new script</option></select>
+  </div>
   <label id="dz" for="pdfin">
     <div class="icon">📄</div>
     <div class="dzl">Drop PDF here or <em>tap to browse</em></div>
@@ -281,6 +286,17 @@
   <div id="upst" style="font-size:13px;color:var(--muted);margin-top:12px;min-height:20px;"></div>
   <div class="err" id="uperr"></div>
   <div id="saved"></div>
+  <div id="coachlog-wrap" style="margin-top:28px;padding-top:20px;border-top:1px solid var(--border)">
+    <div class="saved-h">Coaching log <span class="kfree">notes from real feedback — not tied to one script</span></div>
+    <textarea id="log-ta" class="log-ta" rows="2" placeholder="e.g. coach said I missed the hook at top of act 2, chose to de-escalate when it needed to fight…"></textarea>
+    <button class="ghost" onclick="addLogEntry()">+ Add note</button>
+    <div id="log-list"></div>
+    <div id="patterns-wrap" style="margin-top:16px"></div>
+  </div>
+  <div id="activity-wrap" style="margin-top:28px;padding-top:20px;border-top:1px solid var(--border)">
+    <div class="saved-h">Activity <span class="kfree">automatic — uploads, revisions, breakdowns, gut-checks</span></div>
+    <div id="activity-list" style="font-size:12px;color:var(--muted)">Loading…</div>
+  </div>
 </div>
 
 <!-- SCRIPT PICKER -->
@@ -341,6 +357,7 @@
       <label class="wk-l">Your instinct <span class="wk-opt">optional</span></label>
       <textarea id="wk-inst" rows="2" placeholder="Any read you already have…"></textarea>
     </div>
+    <div id="wk-revised-banner" style="display:none;background:rgba(251,191,36,.1);border:1px solid var(--amber);border-radius:8px;padding:10px 12px;font-size:12px;color:var(--amber);margin-bottom:12px">⚠ The script changed since this Story Analysis ran — hit 🔄 Redo below for an accurate read.</div>
     <div id="wk-out" class="wk-out"></div>
     <div id="wk-genall-wrap" style="display:none;margin-top:14px">
       <button class="ghost" id="wk-genall" onclick="generateAllScenes()" style="width:100%">🎬 Generate all scene breakdowns</button>
@@ -561,7 +578,7 @@ function saveCurrent(){
   const arr=loadSaved();
   const work=(arr.find(s=>s.name===curName)||{}).work||{};
   const rest=arr.filter(s=>s.name!==curName);
-  rest.unshift({name:curName,work,lines:SL.map(l=>({char:l.char,direction:l.direction,text:l.text,before:l.before||'',after:l.after||'',isMine:!!l.isMine,cut:!!l.cut,sceneStart:!!l.sceneStart,sceneHeading:l.sceneHeading||'',sceneLabel:l.sceneLabel||''}))});
+  rest.unshift({name:curName,work,lines:SL.map(l=>({char:l.char,direction:l.direction,text:l.text,before:l.before||'',after:l.after||'',isMine:!!l.isMine,cut:!!l.cut,sceneStart:!!l.sceneStart,sceneHeading:l.sceneHeading||'',sceneLabel:l.sceneLabel||'',carried:!!l.carried}))});
   const evicted = rest.length>30 ? rest[30].name : null;
   writeSaved(rest.slice(0,30));
   renderSaved();
@@ -608,7 +625,23 @@ function delScript(name){
 // Load, not just on the tile above (which may be scrolled out of view).
 function routeLabel(){return uploadRoute==='free' ? '🆓 Gemini — free' : '🔒 OpenAI — paid';}
 function updateRouteBadge(){const b=document.getElementById('saved-route-badge');if(b)b.textContent='Using: '+routeLabel();}
+// Lets an upload with a DIFFERENT filename than the original still carry
+// over unchanged scenes' work (same-filename revisions are detected
+// automatically in doPDF — this is only for when casting renames the file).
+function renderRevisionPicker(){
+  const wrap=document.getElementById('rev-of-wrap'),sel=document.getElementById('rev-of');
+  if(!wrap||!sel)return;
+  const arr=loadSaved();
+  wrap.style.display=arr.length?'block':'none';
+  const cur=sel.value;
+  sel.innerHTML='<option value="">None — this is a new script</option>'
+    +arr.map(s=>`<option value="${esc(s.name)}">${esc(s.name)}</option>`).join('');
+  if(arr.some(s=>s.name===cur))sel.value=cur;
+}
 function renderSaved(){
+  renderRevisionPicker();
+  renderCoachLog();
+  renderActivityLog(); // async, not awaited — list shows "Loading…" briefly then fills in, doesn't block this render
   const box=document.getElementById('saved');if(!box)return;
   const arr=loadSaved();box.innerHTML='';
   if(!arr.length)return;
@@ -626,6 +659,88 @@ function renderSaved(){
     const del=document.createElement('button');del.className='del';del.textContent='✕';del.title='Delete';del.onclick=()=>delScript(s.name);
     row.appendChild(ld);row.appendChild(del);box.appendChild(row);
   });
+}
+
+// COACHING LOG — free-text notes she logs herself (real coaching feedback,
+// her own instincts), deliberately NOT tied to one script/scene, since the
+// note that opened this whole feature was about a coaching session, not a
+// line in the app. Feeds runPatterns() below alongside checklist/gut-check
+// history already saved per script.
+function loadCoachLog(){try{return JSON.parse(localStorage.getItem('offbook_coachlog')||'[]');}catch(e){return [];}}
+function writeCoachLog(arr){try{localStorage.setItem('offbook_coachlog',JSON.stringify(arr));}catch(e){}}
+function addLogEntry(){
+  const ta=document.getElementById('log-ta');
+  const text=ta.value.trim();if(!text)return;
+  const arr=loadCoachLog();
+  // Date.now() alone can collide — two adds in the same millisecond (easy to
+  // trigger programmatically, confirmed while testing) would get the SAME id,
+  // and delLogEntry(id) filters out every entry matching it, not just one.
+  arr.unshift({id:Date.now()+'-'+Math.random().toString(36).slice(2),text,at:Date.now()});
+  writeCoachLog(arr.slice(0,100)); // same eviction pattern as the 30-script cap
+  ta.value='';
+  renderCoachLog();
+}
+function delLogEntry(id){if(!confirm('Delete this note?'))return;writeCoachLog(loadCoachLog().filter(e=>e.id!==id));renderCoachLog();}
+function renderCoachLog(){
+  const list=document.getElementById('log-list');if(!list)return;
+  list.innerHTML='';
+  loadCoachLog().forEach(e=>{
+    const row=document.createElement('div');row.className='saved-item';
+    row.innerHTML=`<div class="nm" style="white-space:normal">${esc(e.text)}</div>`;
+    const del=document.createElement('button');del.className='del';del.textContent='✕';
+    del.onclick=()=>delLogEntry(e.id); // closure, not a string-built onclick= — e.id is a string id now, not a number
+    row.appendChild(del);list.appendChild(row);
+  });
+  renderPatternsGate();
+}
+// How many checklist entries (across every saved script) actually have data —
+// used the same way as log-entry count, as the "is there enough to say
+// anything real yet" gate for Coach's Notes.
+function checklistCount(){
+  let n=0;
+  for(const s of loadSaved()){
+    if(!s.work)continue;
+    for(const k in s.work){
+      const cl=s.work[k].checklist;
+      if(cl&&(cl.verb||cl.position||cl.direction||cl.gutCheck))n++;
+    }
+  }
+  return n;
+}
+function patternsDataCount(){return loadCoachLog().length+checklistCount();}
+// Shared by runPatterns() (builds the prompt) and the staleness check below —
+// one source of truth so "has anything actually changed" is judged on the
+// same content that would go into a fresh run, not a separate count that can
+// go stale itself (delete 2 notes, add 2 different ones — same count, very
+// different content).
+function buildPatternsDigest(){
+  const logEntries=loadCoachLog().slice(0,40).map(e=>'- '+e.text).join('\n');
+  const digestParts=[];
+  for(const s of loadSaved()){
+    if(!s.work)continue;
+    for(const k in s.work){
+      const cl=s.work[k].checklist;if(!cl)continue;
+      const bits=[cl.verb&&`verb: ${cl.verb}`,cl.position&&`position: ${cl.position}`,cl.direction&&`direction: ${cl.direction}`,cl.gutCheck&&`gut-check: ${cl.gutCheck}`].filter(Boolean);
+      if(bits.length)digestParts.push(`[${s.name} — ${k}] `+bits.join(' · '));
+    }
+  }
+  return {logEntries, digest:digestParts.slice(0,60).join('\n')};
+}
+function patternsSignature(){const {logEntries,digest}=buildPatternsDigest();return logEntries+'\n---\n'+digest;}
+function loadPatternsCache(){try{return JSON.parse(localStorage.getItem('offbook_patterns')||'null');}catch(e){return null;}}
+function savePatternsCache(reply){try{localStorage.setItem('offbook_patterns',JSON.stringify({reply,signature:patternsSignature(),at:Date.now()}));}catch(e){}}
+function renderPatternsGate(){
+  const wrap=document.getElementById('patterns-wrap');if(!wrap)return;
+  const n=patternsDataCount();
+  if(n<3){
+    wrap.innerHTML=`<div style="font-size:12px;color:var(--muted)">Log a few more notes (or fill in Pre-Take Checklists) before Coach's Notes has enough to work with — ${n}/3 so far.</div>`;
+    return;
+  }
+  const cached=loadPatternsCache();
+  const stale=cached&&cached.signature!==patternsSignature();
+  wrap.innerHTML=`<button class="ghost" id="patterns-btn" onclick="runPatterns()">🧭 Coach's Notes</button>`
+    +(stale?`<div style="font-size:11px;color:var(--muted);margin-top:6px">New data since this last ran — tap to refresh.</div>`:'')
+    +`<div id="patterns-result" style="margin-top:10px">${cached?mdToHtml(cached.reply):''}</div>`;
 }
 
 // DEMO — a keyless taste of the product. The scoring/diff is all client-side,
@@ -770,10 +885,92 @@ async function doPDF(file){
 
     SL=merged.map((l,i)=>({...l,text:cleanText(l.text),before:cleanText(l.before||''),after:cleanText(l.after||''),id:i,isMine:false}));
     recomputeScenes();
+
+    // Revision carryover — a re-upload (pink/blue pages) used to either
+    // silently reattach old Scene Work under the WRONG new scene number
+    // (same filename — scene numbers are re-derived fresh, so a shifted
+    // scene boundary meant stale work landing on the wrong content) or lose
+    // it entirely (different filename — no link between the two saves at
+    // all). Match scenes by exact dialogue fingerprint instead of number —
+    // only word-for-word-unchanged scenes carry their work forward; anything
+    // that changed starts clean rather than risk attaching to the wrong scene.
+    const revPickEl=document.getElementById('rev-of');
+    const revPick=revPickEl?revPickEl.value:'';
+    const savedArr=loadSaved();
+    const sameNameMatch=savedArr.find(s=>s.name===file.name);
+    const manualSource=revPick?savedArr.find(s=>s.name===revPick):null;
+    // Try the manual pick first (an explicit choice), then the same-filename
+    // match as a fallback — neither is discarded wholesale just because the
+    // other also exists; each new scene gets matched against whichever
+    // candidate actually has it, and a candidate that contributes NOTHING
+    // (e.g. a wrong dropdown pick) is left completely untouched — never
+    // deleted just for having been selected.
+    const candidates=[manualSource,sameNameMatch].filter((s,i,arr)=>s&&arr.findIndex(x=>x&&x.name===s.name)===i);
+    let carriedCount=0, newSceneCount=0, storyCarried=false;
+    const newWork={};
+    const contributedNames=new Set();
+    if(candidates.length){
+      const prepared=candidates.map(source=>{
+        let n=0;
+        const oldLines=source.lines.map((l,i)=>{const starts=i===0||l.sceneStart;if(starts)n++;return {...l,scene:n,_sceneFirst:starts};});
+        const oldScenes=[...new Set(oldLines.map(l=>l.scene))];
+        return {source,oldLines,oldFpToScene:new Map(oldScenes.map(s=>[sceneFingerprint(oldLines,s),s]))};
+      });
+      const newScenes=[...new Set(SL.map(l=>l.scene))];
+      for(const ns of newScenes){
+        const fp=sceneFingerprint(SL,ns);
+        let matched=false;
+        for(const {source,oldLines,oldFpToScene} of prepared){
+          const os=oldFpToScene.get(fp);
+          if(os==null)continue;
+          matched=true;carriedCount++;contributedNames.add(source.name);
+          const oldChars=[...new Set(oldLines.filter(l=>l.scene===os).map(l=>l.char))];
+          for(const c of oldChars){
+            const oldEntry=source.work&&source.work[workKey(os,c)];
+            if(oldEntry)newWork[workKey(ns,c)]=oldEntry;
+          }
+          const oldFirst=oldLines.find(l=>l.scene===os&&l._sceneFirst);
+          const newFirst=SL.find(l=>l.scene===ns&&l._sceneFirst);
+          if(oldFirst&&oldFirst.sceneLabel&&newFirst)newFirst.sceneLabel=oldFirst.sceneLabel;
+          if(newFirst)newFirst.carried=true; // persistent marker, not a toast — shown as a badge on the scene header (buildScript)
+          break; // first matching candidate wins this scene
+        }
+        if(!matched)newSceneCount++;
+      }
+      const scriptChanged=newSceneCount>0;
+      // Story Analysis is whole-script, not per-scene — it can't be verified
+      // "unchanged" by fingerprint the way a scene can. Carry it forward so
+      // it isn't silently lost on a revision, but mark it stale if anything
+      // actually changed so Scene Work can prompt a re-run instead of
+      // presenting a possibly-outdated read as current (see wk-revised-banner).
+      for(const {source} of prepared){
+        if(!source.work)continue;
+        for(const key in source.work){
+          if(!key.startsWith('all::')||newWork[key])continue;
+          newWork[key]=scriptChanged?{...source.work[key],_revised:true}:source.work[key];
+          storyCarried=true;contributedNames.add(source.name);
+        }
+      }
+      if(carriedCount||storyCarried){
+        // Pre-seed a placeholder under the NEW name holding only the
+        // freshly-remapped work, so saveCurrent()'s own by-name lookup
+        // (a few lines down) picks it up correctly — and fold in any
+        // contributing candidate under a different name instead of leaving
+        // two disconnected saves.
+        const rest=loadSaved().filter(s=>!contributedNames.has(s.name)&&s.name!==file.name);
+        rest.unshift({name:file.name,work:newWork,lines:[]});
+        writeSaved(rest);
+      }
+    }
+    if(revPickEl)revPickEl.value=''; // don't let a stale pick carry into the NEXT unrelated upload
     curName=file.name;
     const evicted=saveCurrent();
     const evictNote = evicted ? ` (dropped your oldest saved script, "${evicted}", to stay under 30)` : '';
-    document.getElementById('upst').textContent=`✓ ${SL.length} lines found`+failNote+evictNote;
+    const revNote = (carriedCount||storyCarried)
+      ? ` — carried over ${carriedCount?`${carriedCount} unchanged scene${carriedCount>1?'s':''}`:''}${carriedCount&&storyCarried?' + ':''}${storyCarried?'Story Analysis':''}${newSceneCount?` (${newSceneCount} scene${newSceneCount>1?'s':''} new/changed — re-run Story Analysis for an accurate read)`:''}`
+      : '';
+    document.getElementById('upst').textContent=`✓ ${SL.length} lines found`+revNote+failNote+evictNote;
+    logActivity(revNote?'revision':'upload', `${file.name} — ${SL.length} lines`+(revNote?revNote:''));
     setTimeout(()=>{buildScript();show('script-screen');},300);
 
   }catch(e){
@@ -995,6 +1192,14 @@ let _sceneFilter='all'; // 'all' or a scene number — lets the actor view one s
 // slugline, else blank. One source of truth used by the divider, the tabs,
 // and both the Scene work and audio scene pickers, so a rename shows up everywhere.
 function sceneNameFor(scene){const l=SL.find(x=>x.scene===scene&&x._sceneFirst);return l?(l.sceneLabel||l.sceneHeading||''):'';}
+// A cheap, deterministic fingerprint for "is this the same scene, word for
+// word" — reuses norm() (already strips case/punctuation/apostrophe noise)
+// instead of a new comparator. Exact match only, on purpose: no fuzzy/partial
+// scoring, so carryover can never guess wrong and silently attach one scene's
+// breakdown to a DIFFERENT scene that just happens to be similar.
+function sceneFingerprint(lines,scene){
+  return lines.filter(l=>l.scene===scene).map(l=>norm(l.text)).join('|');
+}
 // Inline rename in place of the header text — no native prompt() dialog.
 // Enter or clicking away commits, Escape cancels.
 //
@@ -1063,7 +1268,7 @@ function buildScript(){
       const h=document.createElement('div');
       h.className='sl-scene';
       const name=sceneNameFor(l.scene);
-      h.innerHTML=`<span>Scene ${l.scene}<span id="sl-scene-name-${l.scene}">${name?' — '+esc(name):''}</span></span>`
+      h.innerHTML=`<span>Scene ${l.scene}<span id="sl-scene-name-${l.scene}">${name?' — '+esc(name):''}</span>${l.carried?' <span title="This scene\'s Scene Work carried over from a prior save — unchanged since then" style="font-size:9px;color:var(--green);border:1px solid var(--green);border-radius:4px;padding:1px 5px;vertical-align:middle">↩ carried over</span>':''}</span>`
         +`<span class="sl-scene-btns"><button class="sl-scene-rename" title="Name this scene">✎ rename</button>`
         +(l.id!==SL[0].id?`<button class="sl-scene-merge" title="Merge into the previous scene">merge ↑</button>`:'')
         +`</span>`;
@@ -1385,10 +1590,40 @@ async function gutCheck(){
     thread.checklist.gutCheck=reply;
     thread.checklist.gutCheckAt=Date.now();
     setWork(scene,char,thread);
+    logActivity('gutcheck', `${curName||'demo'} — ${wkSceneLabel(scene)} (${char})`);
   }catch(e){
     resEl.innerHTML='<span style="color:var(--accent)">⚠ '+esc(/fetch/i.test(e.message)?'Couldn\'t reach the model — check your key has credits':e.message)+'</span>';
   }
   btn.disabled=false;
+}
+
+// PATTERNS — reads her own logged notes (offbook_coachlog) together with
+// checklist/gut-check history across EVERY saved script, not one scene.
+// On-demand only (same "manual first, AI check optional" shape as the
+// Pre-Take Checklist above) — an ambient/automatic version would mean an AI
+// call firing without her asking, and deciding for her when something's
+// worth flagging.
+const PATTERNS_PROMPT=`You are reading an actor's own logged notes and her scene-work checklist history across everything she's saved in Offbook — not one scene, the whole record. Same direct, no-hedging craft voice as the rest of her tool (banned: "perhaps," "one could argue," "you might consider").
+
+Find 2-4 RECURRING patterns — things that show up more than once, not one-off notes. For each: name it plainly, cite at least one concrete instance from what she gave you (quote or closely paraphrase it — don't generalize away from her own words), and say ONE plain thing to do about it going forward. This is a coach who's watched a stack of her tapes, not a therapist summarizing her feelings — stay on craft and behavior (what she plays, what she avoids, what she defaults to under pressure), not psychology.
+
+If the data is too thin to call something a real pattern yet, say so plainly for that slot instead of manufacturing one — a false pattern is worse than a short list.`;
+async function runPatterns(){
+  const btn=document.getElementById('patterns-btn'),resEl=document.getElementById('patterns-result');
+  if(btn)btn.disabled=true;
+  if(resEl)resEl.innerHTML='<span style="color:var(--muted)">Thinking…</span>';
+  const {logEntries,digest}=buildPatternsDigest();
+  const _esc=t=>(t||'').replace(/<\/?(log|checklists)>/gi,'[tag]');
+  const prompt=`<log>\n${_esc(logEntries)||'(no logged notes)'}\n</log>\n\n<checklists>\n${_esc(digest)||'(no checklist data)'}\n</checklists>\n\nGive me the patterns.`;
+  try{
+    const reply=await craftLLM(PATTERNS_PROMPT,[{role:'user',content:prompt}],true);
+    savePatternsCache(reply);
+    renderPatternsGate();
+    logActivity('patterns', "Coach's Notes run");
+  }catch(e){
+    if(resEl)resEl.innerHTML='<span style="color:var(--accent)">⚠ '+esc(/fetch/i.test(e.message)?'Couldn\'t reach the model — check your key has credits':e.message)+'</span>';
+  }
+  if(btn)btn.disabled=false;
 }
 
 let _editingIdx=-1;
@@ -1441,6 +1676,8 @@ function loadThread(){
   const sec=document.getElementById('wk-secondary');if(sec)sec.style.display=has?'flex':'none';
   document.getElementById('wk-go').textContent=has?'SEND →':'BREAK IT DOWN';
   document.getElementById('wk-status').textContent='';
+  const revBanner=document.getElementById('wk-revised-banner');
+  if(revBanner)revBanner.style.display=(scene==='all'&&thread&&thread._revised)?'block':'none';
   const totalScenes=new Set(SL.map(l=>l.scene)).size;
   const genWrap=document.getElementById('wk-genall-wrap');
   if(genWrap)genWrap.style.display=(scene==='all'&&has&&totalScenes>1)?'block':'none';
@@ -1485,8 +1722,9 @@ async function sendWork(){
   let thread=getWork(scene,char);
   _wkJobRunning=true;
   setWkButtonsBusy(true);
+  const isFreshBreakdown=!thread||!thread.messages||!thread.messages.length;
   try{
-    if(!thread||!thread.messages||!thread.messages.length){
+    if(isFreshBreakdown){
       const brk=document.getElementById('wk-brk').value.trim();
       const inst=document.getElementById('wk-inst').value.trim();
       const first=buildFirstMessage(scene,char,brk,inst);
@@ -1507,10 +1745,12 @@ async function sendWork(){
     // for the actor to decide per scene breakdown, where sharpness matters more.
     const reply=await craftLLM(systemPrompt,thread.messages, scene==='all' ? true : isCheapMode());
     thread.messages.push({role:'assistant',content:reply});
+    delete thread._revised; // fresh reply landed — the carried-over-after-a-revision flag no longer applies
     setWork(scene,char,thread);
     renderThread(thread);
     loadThread();
     st.textContent='';
+    if(isFreshBreakdown)logActivity('breakdown', `${curName||'demo'} — ${wkSceneLabel(scene)} (${char})`);
   }catch(e){st.textContent='⚠ '+(/fetch/i.test(e.message)?'Couldn\'t reach the model — check your key has credits':e.message);}
   _wkJobRunning=false;
   setWkButtonsBusy(false);
@@ -1754,9 +1994,35 @@ function encodeWAV(samples,sr){
   return new Blob([v],{type:'audio/wav'});
 }
 // Cache generated tracks (IndexedDB) so the same settings don't re-charge TTS.
-function idbOpen(){return new Promise((res,rej)=>{const r=indexedDB.open('offbook',1);r.onupgradeneeded=()=>{if(!r.result.objectStoreNames.contains('audio'))r.result.createObjectStore('audio');};r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});}
+// v2 adds 'activity' (the permanent, automatic history log) alongside the
+// original 'audio' cache store — same database, same proven pattern, so the
+// audio cache is untouched by this and needs no migration of its own.
+function idbOpen(){return new Promise((res,rej)=>{const r=indexedDB.open('offbook',2);r.onupgradeneeded=()=>{
+  if(!r.result.objectStoreNames.contains('audio'))r.result.createObjectStore('audio');
+  if(!r.result.objectStoreNames.contains('activity'))r.result.createObjectStore('activity',{keyPath:'id'});
+};r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});}
 async function idbGet(k){try{const db=await idbOpen();return await new Promise(res=>{const t=db.transaction('audio').objectStore('audio').get(k);t.onsuccess=()=>res(t.result||null);t.onerror=()=>res(null);});}catch(e){return null;}}
 async function idbSet(k,v){try{const db=await idbOpen();await new Promise(res=>{const t=db.transaction('audio','readwrite').objectStore('audio').put(v,k);t.onsuccess=()=>res();t.onerror=()=>res();});}catch(e){}}
+async function idbGetAll(store){try{const db=await idbOpen();return await new Promise(res=>{const t=db.transaction(store).objectStore(store).getAll();t.onsuccess=()=>res(t.result||[]);t.onerror=()=>res([]);});}catch(e){return [];}}
+async function idbAdd(store,v){try{const db=await idbOpen();await new Promise(res=>{const t=db.transaction(store,'readwrite').objectStore(store).put(v);t.onsuccess=()=>res();t.onerror=()=>res();});}catch(e){}}
+// Automatic, permanent record of what happened — distinct from the manual
+// Coaching Log (her own typed notes). Fire-and-forget: never awaited at the
+// call site, and idbAdd already swallows its own errors, so a logging
+// failure can never block or break the feature that triggered it.
+function logActivity(type,detail){idbAdd('activity',{id:Date.now()+'-'+Math.random().toString(36).slice(2),at:Date.now(),type,detail});}
+const ACTIVITY_ICONS={upload:'📄',revision:'🔁',breakdown:'🎬',gutcheck:'🧠',patterns:'🧭'};
+async function renderActivityLog(){
+  const list=document.getElementById('activity-list');if(!list)return;
+  const entries=(await idbGetAll('activity')).sort((a,b)=>b.at-a.at).slice(0,200);
+  if(!entries.length){list.innerHTML='Nothing logged yet — upload a script or run a breakdown.';return;}
+  let lastDate='',html='';
+  for(const e of entries){
+    const dateStr=new Date(e.at).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'});
+    if(dateStr!==lastDate){html+=`<div style="margin-top:10px;font-weight:600;color:var(--text)">${esc(dateStr)}</div>`;lastDate=dateStr;}
+    html+=`<div style="padding:3px 0">${ACTIVITY_ICONS[e.type]||'•'} ${esc(e.detail)}</div>`;
+  }
+  list.innerHTML=html;
+}
 function dlBlob(blob,fname){const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=fname;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),4000);}
 
 // ===== JOB PILL (background audio work) =====
