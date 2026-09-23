@@ -311,7 +311,7 @@
     <select id="wk-char" onchange="loadThread()"></select>
     <label class="wk-l" style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400">
       <input type="checkbox" id="wk-cheap" onchange="saveCheapMode()" style="width:auto">
-      💸 Cheap mode — mini model, lower cost, less sharp <span class="wk-opt">(OpenAI route only)</span>
+      💸 Cheap mode — mini model, lower cost, less sharp <span class="wk-opt">(scene breakdowns, OpenAI route only — story analysis always runs cheap)</span>
     </label>
     <div id="wk-checklist" class="wk-checklist">
       <div class="wk-cl-h">Pre-take checklist</div>
@@ -586,11 +586,22 @@ function delScript(name){
   writeSaved(loadSaved().filter(s=>s.name!==name));
   renderSaved();
 }
+// "(free)" used to sit in this header, right below a route tile that ALSO
+// says "free" for something unrelated (the Gemini route) — easy to misread
+// as confirming your route choice. Renamed, and replaced with a live badge
+// that actually reflects uploadRoute, so it's visible right where you click
+// Load, not just on the tile above (which may be scrolled out of view).
+function routeLabel(){return uploadRoute==='free' ? '🆓 Gemini — free' : '🔒 OpenAI — paid';}
+function updateRouteBadge(){const b=document.getElementById('saved-route-badge');if(b)b.textContent='Using: '+routeLabel();}
 function renderSaved(){
   const box=document.getElementById('saved');if(!box)return;
   const arr=loadSaved();box.innerHTML='';
   if(!arr.length)return;
-  const h=document.createElement('div');h.className='saved-h';h.textContent='Saved scripts — load without re-uploading (free)';
+  const h=document.createElement('div');h.className='saved-h';h.textContent='Saved scripts — load without re-uploading';
+  const badge=document.createElement('span');badge.id='saved-route-badge';
+  badge.style.cssText='float:right;font-size:11px;color:var(--accent);font-weight:600;';
+  badge.textContent='Using: '+routeLabel();
+  h.appendChild(badge);
   box.appendChild(h);
   arr.forEach(s=>{
     const mine=s.lines.filter(l=>l.isMine).length;
@@ -649,7 +660,7 @@ dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('over');do
 // Upload route: 'paid' = OpenAI (your key, no-train, for unreleased/NDA);
 // 'free' = Gemini free tier (fine for already-public/aired scripts).
 let uploadRoute='paid';
-function setRoute(el){uploadRoute=el.dataset.route;document.querySelectorAll('.route-opt').forEach(o=>o.classList.toggle('on',o===el));}
+function setRoute(el){uploadRoute=el.dataset.route;document.querySelectorAll('.route-opt').forEach(o=>o.classList.toggle('on',o===el));updateRouteBadge();}
 
 // Protected/scanned pages need vision OCR (the part that costs money). Ask first.
 function askOCR(n){
@@ -1404,7 +1415,10 @@ async function sendWork(){
     renderThread(thread);
     st.textContent = scene==='all' ? 'Reading the whole script…' : 'Working the scene…';
     const systemPrompt = scene==='all' ? STORY_PROMPT : CRAFT_PROMPT;
-    const reply=await craftLLM(systemPrompt,thread.messages,isCheapMode());
+    // Story analysis is a short, exploratory pass — always run it on the
+    // light model regardless of the cheap-mode checkbox, which is reserved
+    // for the actor to decide per scene breakdown, where sharpness matters more.
+    const reply=await craftLLM(systemPrompt,thread.messages, scene==='all' ? true : isCheapMode());
     thread.messages.push({role:'assistant',content:reply});
     setWork(scene,char,thread);
     renderThread(thread);
