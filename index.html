@@ -49,17 +49,25 @@
   .sl{position:relative;padding:8px 12px;border-radius:6px;margin:2px 0;cursor:pointer;transition:background .12s;border-left:3px solid transparent;}
   .sl:hover{background:var(--s2);}
   .sl.mine{background:rgba(167,139,250,.08);border-left-color:var(--accent);}
+  .sl.cut{opacity:.4;cursor:default;}
+  .sl.cut .sl-text{text-decoration:line-through;}
   .sl-meta{font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--muted);margin-bottom:3px;}
   .sl.mine .sl-meta{color:var(--accent);}
   .sl-text{font-size:15px;color:var(--text);line-height:1.6;}
   .sl-scene{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:24px 0 8px;padding-top:16px;border-top:1px dashed var(--border);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:600;}
   .sl-scene:first-child{margin-top:0;padding-top:0;border-top:none;}
   .sl-scene-btns{display:flex;gap:6px;flex-shrink:0;}
-  .sl-scene-rename,.sl-scene-merge,.sl-split{font-family:'DM Mono',monospace;text-transform:none;letter-spacing:.02em;font-weight:400;background:transparent;border:1px solid var(--border);border-radius:4px;padding:3px 8px;color:var(--muted);cursor:pointer;transition:all .15s;}
+  .sl-scene-rename,.sl-scene-merge,.sl-split,.sl-cut{font-family:'DM Mono',monospace;text-transform:none;letter-spacing:.02em;font-weight:400;background:transparent;border:1px solid var(--border);border-radius:4px;padding:3px 8px;color:var(--muted);cursor:pointer;transition:all .15s;}
   .sl-scene-rename,.sl-scene-merge{font-size:10px;white-space:nowrap;}
-  .sl-scene-rename:hover,.sl-scene-merge:hover,.sl-split:hover{color:var(--accent);border-color:var(--accent);}
-  .sl-split{position:absolute;top:6px;right:8px;font-size:9px;opacity:0;transition:opacity .15s,border-color .15s,color .15s;}
-  .sl:hover .sl-split{opacity:1;}
+  .sl-scene-rename:hover,.sl-scene-merge:hover,.sl-split:hover,.sl-cut:hover{color:var(--accent);border-color:var(--accent);}
+  .sl-scene-input{font-family:'DM Mono',monospace;font-size:11px;font-weight:600;letter-spacing:.02em;text-transform:none;color:var(--text);background:var(--s2);border:1px solid var(--accent);border-radius:4px;padding:2px 6px;min-width:140px;max-width:60vw;}
+  .sl-linebtns{position:absolute;top:6px;right:8px;display:flex;gap:4px;opacity:0;transition:opacity .15s;}
+  .sl:hover .sl-linebtns{opacity:1;}
+  .sl-split,.sl-cut{font-size:9px;white-space:nowrap;}
+  .sl-cut.on{color:var(--accent);border-color:var(--accent);}
+  /* Hover-reveal doesn't exist on touch — there's no hover state to reveal it
+     with, so cut/+new scene would be unreachable. Always show them there. */
+  @media (hover:none){ .sl-linebtns{opacity:1;} }
   /* scene action/description context, and parenthetical cue */
   .ctx{font-style:italic;color:var(--muted);font-size:12px;line-height:1.55;margin:6px 0;opacity:.8;}
   .dir{font-style:italic;text-transform:none;letter-spacing:0;color:var(--amber);font-size:11px;}
@@ -347,6 +355,7 @@
     <div class="wk-actions-secondary" id="wk-secondary" style="display:none">
       <button class="ghost" onclick="copyWork()" title="Copy to clipboard">📋 Copy</button>
       <button class="ghost" onclick="downloadWorkMd()" title="Download as Markdown">⬇ Download .md</button>
+      <button class="ghost" onclick="redoWork()" title="Ask for a fresh breakdown, keeping this thread">🔄 Redo</button>
       <button class="ghost" onclick="resetWork()">↻ Start over</button>
       <span style="flex:1"></span>
       <span style="font-size:10px;color:var(--muted);align-self:center">Hover any block to edit ✏️</span>
@@ -543,14 +552,20 @@ function saveKeys(){
 let curName='';
 function loadSaved(){try{return JSON.parse(localStorage.getItem('offbook_scripts')||'[]');}catch(e){return [];}}
 function writeSaved(arr){try{localStorage.setItem('offbook_scripts',JSON.stringify(arr));}catch(e){}}
+// Returns the name of the script evicted to stay under the 30-script cap
+// (oldest survives longest since rest.unshift puts the current one first),
+// or null if nothing was evicted — so a fresh upload can tell you it happened
+// instead of it silently disappearing from the list.
 function saveCurrent(){
-  if(!curName||!SL.length)return;
+  if(!curName||!SL.length)return null;
   const arr=loadSaved();
   const work=(arr.find(s=>s.name===curName)||{}).work||{};
   const rest=arr.filter(s=>s.name!==curName);
-  rest.unshift({name:curName,work,lines:SL.map(l=>({char:l.char,direction:l.direction,text:l.text,before:l.before||'',after:l.after||'',isMine:!!l.isMine,sceneStart:!!l.sceneStart,sceneHeading:l.sceneHeading||'',sceneLabel:l.sceneLabel||''}))});
+  rest.unshift({name:curName,work,lines:SL.map(l=>({char:l.char,direction:l.direction,text:l.text,before:l.before||'',after:l.after||'',isMine:!!l.isMine,cut:!!l.cut,sceneStart:!!l.sceneStart,sceneHeading:l.sceneHeading||'',sceneLabel:l.sceneLabel||''}))});
+  const evicted = rest.length>30 ? rest[30].name : null;
   writeSaved(rest.slice(0,30));
   renderSaved();
+  return evicted;
 }
 function loadScript(name){
   const s=loadSaved().find(x=>x.name===name);if(!s)return;
@@ -690,16 +705,21 @@ async function doPDF(file){
     let lines = [];
     const pageResults = new Array(pages.length).fill(null);
     const needOCR = [];
+    const failedPages = []; // pages that threw (rate limit, bad JSON, etc) — not just "no text"
     // Phase 1 — cheap text read. Flag pages whose text is missing or
-    // scrambled/protected (lots of chars but no dialogue) for OCR.
+    // scrambled/protected (lots of chars but no dialogue) for OCR. A single
+    // page erroring (rate limit, malformed model output) no longer aborts
+    // the whole upload — it's skipped and reported, the rest still parse.
     for(let i=0;i<pages.length;i++){
       const p=pages[i];
       const hasText = p.text.trim().length >= 40;
       if(!hasText){ needOCR.push(i); continue; }
       document.getElementById('upst').innerHTML=`<span class="spin"></span>Reading page ${p.num}/${pages.length}...`;
-      const part = await parseTextLLM(p.text);
-      if((!part||part.length<2) && p.text.trim().length>200){ needOCR.push(i); }
-      else { pageResults[i] = part||[]; }
+      try{
+        const part = await parseTextLLM(p.text);
+        if((!part||part.length<2) && p.text.trim().length>200){ needOCR.push(i); }
+        else { pageResults[i] = part||[]; }
+      }catch(e){ failedPages.push(p.num); }
     }
     // Phase 2 — OCR. Free route (Gemini) just runs; paid route (OpenAI) asks first.
     if(needOCR.length){
@@ -708,15 +728,17 @@ async function doPDF(file){
         for(const i of needOCR){
           const p=pages[i];
           document.getElementById('upst').innerHTML=`<span class="spin"></span>Reading page ${p.num}/${pages.length} (OCR)...`;
-          pageResults[i] = await parseImageLLM(await pageToImage(p.page)) || [];
+          try{ pageResults[i] = await parseImageLLM(await pageToImage(p.page)) || []; }
+          catch(e){ failedPages.push(p.num); }
         }
       }
     }
     for(const r of pageResults){ if(r&&r.length) lines=lines.concat(r); }
+    const failNote = failedPages.length ? ` (page${failedPages.length>1?'s':''} ${failedPages.join(', ')} couldn't be read — try re-uploading if dialogue's missing)` : '';
     if(!lines||!lines.length){
       document.getElementById('uperr').textContent = needOCR.length
-        ? 'This script is protected — re-upload and choose "Read with OCR" to get the lines.'
-        : 'No dialogue found in this script.';
+        ? 'This script is protected — re-upload and choose "Read with OCR" to get the lines.'+failNote
+        : 'No dialogue found in this script.'+failNote;
       document.getElementById('upst').textContent='';
       return;
     }
@@ -748,13 +770,17 @@ async function doPDF(file){
 
     SL=merged.map((l,i)=>({...l,text:cleanText(l.text),before:cleanText(l.before||''),after:cleanText(l.after||''),id:i,isMine:false}));
     recomputeScenes();
-    curName=file.name;saveCurrent();
-    document.getElementById('upst').textContent=`✓ ${SL.length} lines found`;
+    curName=file.name;
+    const evicted=saveCurrent();
+    const evictNote = evicted ? ` (dropped your oldest saved script, "${evicted}", to stay under 30)` : '';
+    document.getElementById('upst').textContent=`✓ ${SL.length} lines found`+failNote+evictNote;
     setTimeout(()=>{buildScript();show('script-screen');},300);
 
   }catch(e){
     let msg=e&&e.message?e.message:String(e);
-    if(/failed to fetch|networkerror|load failed|fetch/i.test(msg)){
+    if(e&&e.name==='PasswordException'){
+      msg='This PDF is password-protected — Offbook can\'t read protected PDFs. Remove the password (or export/print an unprotected copy) and re-upload.';
+    } else if(/failed to fetch|networkerror|load failed|fetch/i.test(msg)){
       msg="Couldn't reach OpenAI. Most likely your key is out of credits or hit a spending limit (check platform.openai.com → Billing). Also check you're online and no ad-blocker/VPN is blocking api.openai.com.";
     }
     document.getElementById('uperr').textContent=msg;
@@ -969,14 +995,50 @@ let _sceneFilter='all'; // 'all' or a scene number — lets the actor view one s
 // slugline, else blank. One source of truth used by the divider, the tabs,
 // and both the Scene work and audio scene pickers, so a rename shows up everywhere.
 function sceneNameFor(scene){const l=SL.find(x=>x.scene===scene&&x._sceneFirst);return l?(l.sceneLabel||l.sceneHeading||''):'';}
+// Inline rename in place of the header text — no native prompt() dialog.
+// Enter or clicking away commits, Escape cancels.
+//
+// _activeSceneEdit tracks the in-progress edit so buildScript()/show() can
+// FLUSH (save, not discard) it before they tear down the DOM the input lives
+// in — verified live that removing the input via innerHTML doesn't reliably
+// fire a native 'blur' in every path here, so the input's own blur listener
+// alone isn't a safe net: switching scene tabs, cutting a line, or clicking
+// rename again while mid-edit was silently discarding whatever was typed.
+let _activeSceneEdit=null;
+function flushSceneEdit(){
+  if(_activeSceneEdit && !_activeSceneEdit.done){
+    _activeSceneEdit.done=true;
+    _activeSceneEdit.commitData(); // mutate + save only — no re-render here, the caller renders next
+  }
+  _activeSceneEdit=null;
+}
 function renameScene(scene){
   const l=SL.find(x=>x.scene===scene&&x._sceneFirst);if(!l)return;
+  const span=document.getElementById('sl-scene-name-'+scene);if(!span)return;
+  flushSceneEdit(); // clicking rename again (or on another scene) saves the previous edit instead of dropping it
   const cur=l.sceneLabel||l.sceneHeading||'';
-  const name=prompt('Name Scene '+scene+' (e.g. "Hospital fight", "Hotel breakup"):',cur);
-  if(name===null)return;
-  l.sceneLabel=name.trim();
-  buildScript();
-  saveCurrent();
+  span.innerHTML=` — <input type="text" class="sl-scene-input" placeholder="Name this scene…">`;
+  const inp=span.querySelector('input');
+  inp.value=cur; // set as a property, never baked into the HTML string — a name containing a
+                 // literal " would otherwise break out of value="..." and inject attributes/handlers
+  inp.focus();inp.select();
+  const edit={done:false, commitData:()=>{ l.sceneLabel=inp.value.trim(); saveCurrent(); }};
+  _activeSceneEdit=edit;
+  const commit=()=>{
+    if(edit.done)return;edit.done=true;_activeSceneEdit=null;
+    edit.commitData();
+    buildScript();
+  };
+  const cancel=()=>{
+    if(edit.done)return;edit.done=true;_activeSceneEdit=null;
+    buildScript();
+  };
+  inp.addEventListener('keydown',e=>{
+    if(e.key==='Enter'){e.preventDefault();commit();}
+    else if(e.key==='Escape'){e.preventDefault();cancel();}
+  });
+  inp.addEventListener('blur',commit);
+  inp.addEventListener('click',e=>e.stopPropagation());
 }
 function buildSceneTabs(){
   const wrap=document.getElementById('scene-tabs');
@@ -991,6 +1053,7 @@ function buildSceneTabs(){
 }
 function setSceneFilter(s){_sceneFilter=s==='all'?'all':Number(s);buildScript();}
 function buildScript(){
+  flushSceneEdit();
   _charMap={};
   buildSceneTabs();
   const c=document.getElementById('slines');c.innerHTML='';
@@ -1000,7 +1063,7 @@ function buildScript(){
       const h=document.createElement('div');
       h.className='sl-scene';
       const name=sceneNameFor(l.scene);
-      h.innerHTML=`<span>Scene ${l.scene}${name?' — '+esc(name):''}</span>`
+      h.innerHTML=`<span>Scene ${l.scene}<span id="sl-scene-name-${l.scene}">${name?' — '+esc(name):''}</span></span>`
         +`<span class="sl-scene-btns"><button class="sl-scene-rename" title="Name this scene">✎ rename</button>`
         +(l.id!==SL[0].id?`<button class="sl-scene-merge" title="Merge into the previous scene">merge ↑</button>`:'')
         +`</span>`;
@@ -1010,10 +1073,14 @@ function buildScript(){
       c.appendChild(h);
     }
     const el=document.createElement('div');
-    el.className='sl'+(l.isMine?' mine':'');
+    el.className='sl'+(l.isMine?' mine':'')+(l.cut?' cut':'');
     el.dataset.id=l.id;
-    el.innerHTML=metaHtml(l,'sl')+(!l._sceneFirst?`<button class="sl-split" title="Start a new scene here">+ new scene</button>`:'');
-    el.addEventListener('click',()=>toggle(l.id));
+    el.innerHTML=metaHtml(l,'sl')+`<span class="sl-linebtns">`
+      +`<button class="sl-cut${l.cut?' on':''}" title="${l.cut?'Restore this line':'Cut this line — before the start, or crossed out'}">${l.cut?'↺ restore':'✂ cut'}</button>`
+      +(!l._sceneFirst&&!l.cut?`<button class="sl-split" title="Start a new scene here">+ new scene</button>`:'')
+      +`</span>`;
+    el.addEventListener('click',()=>{if(!l.cut)toggle(l.id);});
+    el.querySelector('.sl-cut').addEventListener('click',e=>{e.stopPropagation();toggleCut(l.id);});
     const sb=el.querySelector('.sl-split');
     if(sb)sb.addEventListener('click',e=>{e.stopPropagation();toggleSceneStart(l.id);});
     c.appendChild(el);
@@ -1027,6 +1094,16 @@ function toggle(id){
   const el=document.querySelector(`.sl[data-id="${id}"]`);
   if(el)el.classList.toggle('mine',l.isMine);
   updCount();
+}
+// Cut lines stay in SL (ids/ordering/scene detection untouched) but are
+// excluded everywhere downstream that isn't this editor — see sceneText,
+// populateWkChars, buildReadLines, goReh/buildReh, openAudio/audioSegs.
+function toggleCut(id){
+  const l=SL.find(l=>l.id===id);if(!l)return;
+  l.cut=!l.cut;
+  if(l.cut)l.isMine=false;
+  buildScript();
+  saveCurrent();
 }
 function clearMine(){SL.forEach(l=>l.isMine=false);document.querySelectorAll('.sl.mine').forEach(el=>el.classList.remove('mine'));updCount();}
 function updCount(){
@@ -1143,12 +1220,12 @@ Do NOT do per-beat breakdown work here (verbs, beat sheets, the compass/offer tw
 // so when there's more than one scene, "Whole script" is offered and pre-selected.
 function getWkScene(){const v=document.getElementById('wk-scene').value;return v==='all'?'all':(Number(v)||1);}
 function sceneText(scene){
-  const lines = scene==='all' ? SL : SL.filter(l=>l.scene===scene);
+  const lines = (scene==='all' ? SL : SL.filter(l=>l.scene===scene)).filter(l=>!l.cut);
   return lines.map(l=>`${l.before?l.before+'\n':''}${l.char}${l.direction?' ('+l.direction+')':''}: ${l.text}${l.after?'\n'+l.after:''}`).join('\n');
 }
 function populateWkChars(scene){
   const sel=document.getElementById('wk-char');
-  const pool = scene==='all' ? SL : SL.filter(l=>l.scene===scene);
+  const pool = (scene==='all' ? SL : SL.filter(l=>l.scene===scene)).filter(l=>!l.cut);
   const chars=[...new Set(pool.map(l=>l.char))];
   const mineChar=(pool.find(l=>l.isMine)||{}).char;
   sel.innerHTML=chars.map(c=>`<option${c===mineChar?' selected':''}>${esc(c)}</option>`).join('');
@@ -1393,11 +1470,21 @@ function buildFirstMessage(scene,char,brk,inst){
     +(storyReply?`\n\n<story>\n${_escTags(storyReply)}\n</story>`:'')
     +`\n\n<scene>\n${_escTags(sceneText(scene))}\n</scene>`;
 }
+// Set while any Scene Work request is in flight — checked by the PWA's
+// safeToReload() so an auto-update can't yank the page mid-request, and used
+// here to lock the secondary action row so Copy/Redo/Start Over can't race
+// a request that hasn't landed yet (only wk-go used to be disabled).
+let _wkJobRunning=false;
+function setWkButtonsBusy(busy){
+  document.getElementById('wk-go').disabled=busy;
+  document.querySelectorAll('#wk-secondary button').forEach(b=>b.disabled=busy);
+}
 async function sendWork(){
-  const go=document.getElementById('wk-go'),st=document.getElementById('wk-status');
+  const st=document.getElementById('wk-status');
   const scene=getWkScene(),char=document.getElementById('wk-char').value;
   let thread=getWork(scene,char);
-  go.disabled=true;
+  _wkJobRunning=true;
+  setWkButtonsBusy(true);
   try{
     if(!thread||!thread.messages||!thread.messages.length){
       const brk=document.getElementById('wk-brk').value.trim();
@@ -1408,7 +1495,7 @@ async function sendWork(){
       document.getElementById('wk-followup').style.display='block';
     } else {
       const msg=document.getElementById('wk-msg').value.trim();
-      if(!msg){go.disabled=false;return;}
+      if(!msg){_wkJobRunning=false;setWkButtonsBusy(false);return;}
       thread.messages.push({role:'user',content:msg});
       document.getElementById('wk-msg').value='';
     }
@@ -1425,7 +1512,8 @@ async function sendWork(){
     loadThread();
     st.textContent='';
   }catch(e){st.textContent='⚠ '+(/fetch/i.test(e.message)?'Couldn\'t reach the model — check your key has credits':e.message);}
-  go.disabled=false;
+  _wkJobRunning=false;
+  setWkButtonsBusy(false);
 }
 function phase2(){
   if(getWork(getWkScene(),document.getElementById('wk-char').value)){
@@ -1433,18 +1521,40 @@ function phase2(){
     sendWork();
   }
 }
+// Non-destructive alternative to Start Over: appends a redo request as a
+// normal follow-up (CRAFT_PROMPT's "SCOPE OF THIS STRUCTURE" rule already
+// re-triggers the full COMPASS/section structure on an explicit redo ask),
+// so the thread history and Pre-Take Checklist answers are untouched.
+function redoWork(){
+  if(getWork(getWkScene(),document.getElementById('wk-char').value)){
+    document.getElementById('wk-msg').value="Give me a completely fresh breakdown of this scene from scratch — my read has changed, don't just tweak the previous one.";
+    sendWork();
+  }
+}
 // Runs a full scene breakdown for every scene that doesn't already have one,
 // in sequence (clear progress, avoids rate-limit issues), reading the Story
 // Analysis as context for each — same request-building sendWork() uses for a
 // single scene, just looped. Safe to re-click: already-broken-down scenes are
-// skipped, not overwritten.
+// skipped, not overwritten. The button itself doubles as Stop while running —
+// _genAllStop is checked between scenes (not mid-call: an in-flight request
+// always finishes, only the NEXT one is skipped).
+let _genAllStop=false;
+function stopGenerateAll(){_genAllStop=true;}
 async function generateAllScenes(){
   const char=document.getElementById('wk-char').value;
   const scenes=[...new Set(SL.map(l=>l.scene))].filter(s=>s!=='all');
   const btn=document.getElementById('wk-genall'),st=document.getElementById('wk-status');
-  if(btn)btn.disabled=true;
-  let failed=[];
+  _genAllStop=false;
+  _wkJobRunning=true;
+  if(btn){btn.textContent='⏹ Stop generating';btn.onclick=stopGenerateAll;}
+  // Lock scene/char while this runs — it's silently working on THIS pair in
+  // the background; switching away mid-run used to leave the status line and
+  // this very button showing/controlling a run for whatever you'd switched to.
+  const sceneSel=document.getElementById('wk-scene'),charSel=document.getElementById('wk-char');
+  sceneSel.disabled=true;charSel.disabled=true;
+  let failed=[],stoppedAt=null;
   for(let i=0;i<scenes.length;i++){
+    if(_genAllStop){stoppedAt=i;break;}
     const scene=scenes[i];
     const existing=getWork(scene,char);
     if(existing&&existing.messages&&existing.messages.length)continue; // already done
@@ -1459,12 +1569,16 @@ async function generateAllScenes(){
       failed.push(scene);
     }
   }
-  st.textContent = failed.length
-    ? `⚠ Done, but Scene ${failed.join(', ')} failed — try that scene individually.`
-    : '✓ All scenes broken down.';
-  setTimeout(()=>{if(/^(✓|⚠)/.test(st.textContent))st.textContent='';},4000);
-  if(btn)btn.disabled=false;
-  loadThread();
+  sceneSel.disabled=false;charSel.disabled=false;
+  _wkJobRunning=false;
+  if(btn){btn.disabled=false;btn.textContent='🎬 Generate all scene breakdowns';btn.onclick=generateAllScenes;}
+  loadThread(); // clears wk-status as a side effect — must run BEFORE the summary below, not after
+  st.textContent = stoppedAt!==null
+    ? `Stopped after Scene ${stoppedAt} of ${scenes.length}.`
+    : failed.length
+      ? `⚠ Done, but Scene ${failed.join(', ')} failed — try that scene individually.`
+      : '✓ All scenes broken down.';
+  setTimeout(()=>{if(/^(✓|⚠|Stopped)/.test(st.textContent))st.textContent='';},4000);
 }
 function workToText(thread){
   return thread.messages.map((m,i)=>{
@@ -1514,8 +1628,8 @@ let audioMode='reader';
 // back as one continuous, disorienting track.
 function getAudioScene(){const v=(document.getElementById('am-scene')||{}).value;return v==='all'||!v?'all':(Number(v)||'all');}
 function openAudio(){
-  if(!SL.filter(l=>l.isMine).length)return;
-  const scenes=[...new Set(SL.filter(l=>l.isMine).map(l=>l.scene))];
+  if(!SL.filter(l=>l.isMine&&!l.cut).length)return;
+  const scenes=[...new Set(SL.filter(l=>l.isMine&&!l.cut).map(l=>l.scene))];
   const sel=document.getElementById('am-scene');
   const multi=new Set(SL.map(l=>l.scene)).size>1;
   document.getElementById('am-scene-l').style.display=multi?'':'none';
@@ -1537,7 +1651,7 @@ function pickMode(el){
 // scoped to one scene (see getAudioScene) so scenes never bleed into one track.
 function audioSegs(gap){
   const scene=getAudioScene();
-  const pool = scene==='all' ? SL : SL.filter(l=>l.scene===scene);
+  const pool = (scene==='all' ? SL : SL.filter(l=>l.scene===scene)).filter(l=>!l.cut);
   // Ordered events first, then insert gaps: only a FULL pause between different
   // speakers; a short breath within one character's back-to-back lines.
   const raw=[];
@@ -1694,7 +1808,11 @@ async function makeAudio(){
   const sceneTag = scene==='all' ? '' : '_scene'+scene;
   const fname=(curName?curName.replace(/\.pdf$/i,''):'offbook')+sceneTag+'_'+names[audioMode]+'.wav';
   const rv=readerVoice();
-  const scenePool = scene==='all' ? SL : SL.filter(l=>l.scene===scene);
+  // Cut lines are excluded from audioSegs() below, so the cache key must be
+  // built from the same filtered pool — otherwise cutting/restoring a line
+  // doesn't change scenePool.length, the key stays the same, and a stale
+  // cached track (from before the cut) gets served silently.
+  const scenePool = (scene==='all' ? SL : SL.filter(l=>l.scene===scene)).filter(l=>!l.cut);
   const mineSig=scenePool.filter(l=>l.isMine).map(l=>l.id).join('.');
   const key=(curName||'demo')+'|'+scene+'|'+audioMode+'|'+gap+'|'+rv.sig+'|'+scenePool.length+'|'+mineSig;
 
@@ -1756,7 +1874,7 @@ function goRead(){
 
 function buildReadLines(){
   const c=document.getElementById('read-lines');c.innerHTML='';
-  SL.forEach(l=>{
+  SL.filter(l=>!l.cut).forEach(l=>{
     const mine=l.isMine;
     const el=document.createElement('div');
     el.className='rd'+(mine?' mine blacked':'');
@@ -1775,7 +1893,7 @@ function buildReadLines(){
 
 // REHEARSAL
 function goReh(){
-  RL=SL.filter(l=>l.isMine);if(!RL.length)return;
+  RL=SL.filter(l=>l.isMine&&!l.cut);if(!RL.length)return;
   cleared=new Array(RL.length).fill(false);
   cur=0;nCleared=0;passed=false;mode='word';
   document.querySelectorAll('.mp').forEach((b,i)=>b.classList.toggle('on',i===1));
@@ -1785,7 +1903,7 @@ function goReh(){
 
 function buildReh(){
   const c=document.getElementById('rlines');c.innerHTML='';
-  SL.forEach(l=>{
+  SL.filter(l=>!l.cut).forEach(l=>{
     const ri=RL.findIndex(r=>r.id===l.id);
     const mine=l.isMine;
     const isCur=mine&&ri===cur;
@@ -2198,7 +2316,7 @@ function goLibrary(){show('step-upload');renderSaved();}
 function showDone(){releaseMic();show('done-screen');document.getElementById('dscore').textContent=`${nCleared} of ${RL.length} lines cleared · ${Math.round(nCleared/RL.length*100)}% accuracy`;}
 function restart(){cleared.fill(false);cur=0;nCleared=0;passed=false;mode='word';document.querySelectorAll('.mp').forEach((b,i)=>b.classList.toggle('on',i===1));updProg();buildReh();show('reh-screen');scrollCur();}
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-function show(id){['step-key','step-upload','script-screen','read-screen','reh-screen','done-screen'].forEach(s=>document.getElementById(s).style.display=s===id?'block':'none');}
+function show(id){flushSceneEdit();['step-key','step-upload','script-screen','read-screen','reh-screen','done-screen'].forEach(s=>document.getElementById(s).style.display=s===id?'block':'none');}
 </script>
 <script>
 // PWA: register the service worker and auto-update — but ONLY reload when the
@@ -2209,6 +2327,11 @@ if('serviceWorker' in navigator){
   let refreshing=false,pendingReload=false;
   function safeToReload(){
     if(typeof recording!=='undefined'&&recording)return false;
+    // Scene Work requests (including a background "Generate all scenes" run,
+    // which keeps going after the modal is closed) must finish before a
+    // reload — an auto-update used to be able to silently kill a multi-scene
+    // run in progress, with whatever hadn't saved yet just gone.
+    if(typeof _wkJobRunning!=='undefined'&&_wkJobRunning)return false;
     for(const id of ['script-screen','read-screen','reh-screen','done-screen','audio-modal','work-modal']){
       const el=document.getElementById(id);
       if(el&&(el.classList.contains('show')||el.style.display!=='none'&&el.style.display!==''))return false;
