@@ -297,6 +297,15 @@
     <div class="saved-h">Activity <span class="kfree">automatic — uploads, revisions, breakdowns, gut-checks</span></div>
     <div id="activity-list" style="font-size:12px;color:var(--muted)">Loading…</div>
   </div>
+  <div id="backup-wrap" style="margin-top:28px;padding-top:20px;border-top:1px solid var(--border)">
+    <div class="saved-h">Backup <span class="kfree">scripts, coaching log &amp; activity — never your API keys</span></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="ghost" onclick="exportAllData()">⬇ Export all data</button>
+      <button class="ghost" onclick="document.getElementById('import-file').click()">⬆ Import</button>
+      <input type="file" id="import-file" accept="application/json,.json" onchange="importAllData(this.files[0])" style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;clip:rect(0,0,0,0);">
+    </div>
+    <div id="backup-status" style="font-size:12px;color:var(--muted);margin-top:8px"></div>
+  </div>
 </div>
 
 <!-- SCRIPT PICKER -->
@@ -665,33 +674,45 @@ function renderSaved(){
 // her own instincts), deliberately NOT tied to one script/scene, since the
 // note that opened this whole feature was about a coaching session, not a
 // line in the app. Feeds runPatterns() below alongside checklist/gut-check
-// history already saved per script.
-function loadCoachLog(){try{return JSON.parse(localStorage.getItem('offbook_coachlog')||'[]');}catch(e){return [];}}
-function writeCoachLog(arr){try{localStorage.setItem('offbook_coachlog',JSON.stringify(arr));}catch(e){}}
-function addLogEntry(){
+// history already saved per script. Backed by IndexedDB's 'coachlog' store
+// (see idbOpen) — meant to hold up for years of real notes, not subject to
+// a localStorage-style cap the way the old version was.
+let _coachLogMigrated=false;
+async function migrateCoachLogIfNeeded(){
+  if(_coachLogMigrated)return;
+  _coachLogMigrated=true;
+  if(localStorage.getItem('offbook_coachlog_migrated'))return; // a flag, not an empty-check — legitimately
+  let legacy=[];                                                // deleting down to zero notes must never
+  try{legacy=JSON.parse(localStorage.getItem('offbook_coachlog')||'[]');}catch(e){} // look like "not migrated yet"
+  for(const e of legacy)await idbAdd('coachlog',e);
+  localStorage.setItem('offbook_coachlog_migrated','1');
+  // Old key deliberately left in place, untouched — inert once migrated,
+  // zero risk of data loss if anything about this migration ever goes wrong.
+}
+async function loadCoachLog(){await migrateCoachLogIfNeeded();return (await idbGetAll('coachlog')).sort((a,b)=>b.at-a.at);}
+async function addLogEntry(){
   const ta=document.getElementById('log-ta');
   const text=ta.value.trim();if(!text)return;
-  const arr=loadCoachLog();
+  await migrateCoachLogIfNeeded();
   // Date.now() alone can collide — two adds in the same millisecond (easy to
   // trigger programmatically, confirmed while testing) would get the SAME id,
-  // and delLogEntry(id) filters out every entry matching it, not just one.
-  arr.unshift({id:Date.now()+'-'+Math.random().toString(36).slice(2),text,at:Date.now()});
-  writeCoachLog(arr.slice(0,100)); // same eviction pattern as the 30-script cap
+  // and delLogEntry(id) would then delete every entry matching it, not just one.
+  await idbAdd('coachlog',{id:Date.now()+'-'+Math.random().toString(36).slice(2),text,at:Date.now()});
   ta.value='';
-  renderCoachLog();
+  await renderCoachLog();
 }
-function delLogEntry(id){if(!confirm('Delete this note?'))return;writeCoachLog(loadCoachLog().filter(e=>e.id!==id));renderCoachLog();}
-function renderCoachLog(){
+async function delLogEntry(id){if(!confirm('Delete this note?'))return;await idbDelete('coachlog',id);await renderCoachLog();}
+async function renderCoachLog(){
   const list=document.getElementById('log-list');if(!list)return;
   list.innerHTML='';
-  loadCoachLog().forEach(e=>{
+  (await loadCoachLog()).forEach(e=>{
     const row=document.createElement('div');row.className='saved-item';
     row.innerHTML=`<div class="nm" style="white-space:normal">${esc(e.text)}</div>`;
     const del=document.createElement('button');del.className='del';del.textContent='✕';
     del.onclick=()=>delLogEntry(e.id); // closure, not a string-built onclick= — e.id is a string id now, not a number
     row.appendChild(del);list.appendChild(row);
   });
-  renderPatternsGate();
+  await renderPatternsGate();
 }
 // How many checklist entries (across every saved script) actually have data —
 // used the same way as log-entry count, as the "is there enough to say
@@ -707,14 +728,16 @@ function checklistCount(){
   }
   return n;
 }
-function patternsDataCount(){return loadCoachLog().length+checklistCount();}
+async function patternsDataCount(){return (await loadCoachLog()).length+checklistCount();}
 // Shared by runPatterns() (builds the prompt) and the staleness check below —
 // one source of truth so "has anything actually changed" is judged on the
 // same content that would go into a fresh run, not a separate count that can
 // go stale itself (delete 2 notes, add 2 different ones — same count, very
-// different content).
-function buildPatternsDigest(){
-  const logEntries=loadCoachLog().slice(0,40).map(e=>'- '+e.text).join('\n');
+// different content). Caps raised from 40/60 to 150/200 — years of moderate
+// use instead of a couple months — still cheap: a few thousand extra tokens
+// on the light model, only spent when she actually taps the button.
+async function buildPatternsDigest(){
+  const logEntries=(await loadCoachLog()).slice(0,150).map(e=>'- '+e.text).join('\n');
   const digestParts=[];
   for(const s of loadSaved()){
     if(!s.work)continue;
@@ -724,20 +747,20 @@ function buildPatternsDigest(){
       if(bits.length)digestParts.push(`[${s.name} — ${k}] `+bits.join(' · '));
     }
   }
-  return {logEntries, digest:digestParts.slice(0,60).join('\n')};
+  return {logEntries, digest:digestParts.slice(0,200).join('\n')};
 }
-function patternsSignature(){const {logEntries,digest}=buildPatternsDigest();return logEntries+'\n---\n'+digest;}
+async function patternsSignature(){const {logEntries,digest}=await buildPatternsDigest();return logEntries+'\n---\n'+digest;}
 function loadPatternsCache(){try{return JSON.parse(localStorage.getItem('offbook_patterns')||'null');}catch(e){return null;}}
-function savePatternsCache(reply){try{localStorage.setItem('offbook_patterns',JSON.stringify({reply,signature:patternsSignature(),at:Date.now()}));}catch(e){}}
-function renderPatternsGate(){
+async function savePatternsCache(reply){try{localStorage.setItem('offbook_patterns',JSON.stringify({reply,signature:await patternsSignature(),at:Date.now()}));}catch(e){}}
+async function renderPatternsGate(){
   const wrap=document.getElementById('patterns-wrap');if(!wrap)return;
-  const n=patternsDataCount();
+  const n=await patternsDataCount();
   if(n<3){
     wrap.innerHTML=`<div style="font-size:12px;color:var(--muted)">Log a few more notes (or fill in Pre-Take Checklists) before Coach's Notes has enough to work with — ${n}/3 so far.</div>`;
     return;
   }
   const cached=loadPatternsCache();
-  const stale=cached&&cached.signature!==patternsSignature();
+  const stale=cached&&cached.signature!==await patternsSignature();
   wrap.innerHTML=`<button class="ghost" id="patterns-btn" onclick="runPatterns()">🧭 Coach's Notes</button>`
     +(stale?`<div style="font-size:11px;color:var(--muted);margin-top:6px">New data since this last ran — tap to refresh.</div>`:'')
     +`<div id="patterns-result" style="margin-top:10px">${cached?mdToHtml(cached.reply):''}</div>`;
@@ -1612,13 +1635,13 @@ async function runPatterns(){
   const btn=document.getElementById('patterns-btn'),resEl=document.getElementById('patterns-result');
   if(btn)btn.disabled=true;
   if(resEl)resEl.innerHTML='<span style="color:var(--muted)">Thinking…</span>';
-  const {logEntries,digest}=buildPatternsDigest();
+  const {logEntries,digest}=await buildPatternsDigest();
   const _esc=t=>(t||'').replace(/<\/?(log|checklists)>/gi,'[tag]');
   const prompt=`<log>\n${_esc(logEntries)||'(no logged notes)'}\n</log>\n\n<checklists>\n${_esc(digest)||'(no checklist data)'}\n</checklists>\n\nGive me the patterns.`;
   try{
     const reply=await craftLLM(PATTERNS_PROMPT,[{role:'user',content:prompt}],true);
-    savePatternsCache(reply);
-    renderPatternsGate();
+    await savePatternsCache(reply);
+    await renderPatternsGate();
     logActivity('patterns', "Coach's Notes run");
   }catch(e){
     if(resEl)resEl.innerHTML='<span style="color:var(--accent)">⚠ '+esc(/fetch/i.test(e.message)?'Couldn\'t reach the model — check your key has credits':e.message)+'</span>';
@@ -1997,33 +2020,111 @@ function encodeWAV(samples,sr){
 // v2 adds 'activity' (the permanent, automatic history log) alongside the
 // original 'audio' cache store — same database, same proven pattern, so the
 // audio cache is untouched by this and needs no migration of its own.
-function idbOpen(){return new Promise((res,rej)=>{const r=indexedDB.open('offbook',2);r.onupgradeneeded=()=>{
+function idbOpen(){return new Promise((res,rej)=>{const r=indexedDB.open('offbook',3);r.onupgradeneeded=()=>{
   if(!r.result.objectStoreNames.contains('audio'))r.result.createObjectStore('audio');
   if(!r.result.objectStoreNames.contains('activity'))r.result.createObjectStore('activity',{keyPath:'id'});
+  if(!r.result.objectStoreNames.contains('coachlog'))r.result.createObjectStore('coachlog',{keyPath:'id'});
 };r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});}
 async function idbGet(k){try{const db=await idbOpen();return await new Promise(res=>{const t=db.transaction('audio').objectStore('audio').get(k);t.onsuccess=()=>res(t.result||null);t.onerror=()=>res(null);});}catch(e){return null;}}
 async function idbSet(k,v){try{const db=await idbOpen();await new Promise(res=>{const t=db.transaction('audio','readwrite').objectStore('audio').put(v,k);t.onsuccess=()=>res();t.onerror=()=>res();});}catch(e){}}
 async function idbGetAll(store){try{const db=await idbOpen();return await new Promise(res=>{const t=db.transaction(store).objectStore(store).getAll();t.onsuccess=()=>res(t.result||[]);t.onerror=()=>res([]);});}catch(e){return [];}}
 async function idbAdd(store,v){try{const db=await idbOpen();await new Promise(res=>{const t=db.transaction(store,'readwrite').objectStore(store).put(v);t.onsuccess=()=>res();t.onerror=()=>res();});}catch(e){}}
+async function idbDelete(store,id){try{const db=await idbOpen();await new Promise(res=>{const t=db.transaction(store,'readwrite').objectStore(store).delete(id);t.onsuccess=()=>res();t.onerror=()=>res();});}catch(e){}}
 // Automatic, permanent record of what happened — distinct from the manual
 // Coaching Log (her own typed notes). Fire-and-forget: never awaited at the
 // call site, and idbAdd already swallows its own errors, so a logging
 // failure can never block or break the feature that triggered it.
 function logActivity(type,detail){idbAdd('activity',{id:Date.now()+'-'+Math.random().toString(36).slice(2),at:Date.now(),type,detail});}
 const ACTIVITY_ICONS={upload:'📄',revision:'🔁',breakdown:'🎬',gutcheck:'🧠',patterns:'🧭'};
+// Session-scoped, not persisted — resets to 50 on reload, grows via "Show
+// more" so years of history stay reachable instead of hard-capped forever.
+let _activityLimit=50;
+function showMoreActivity(){_activityLimit+=100;renderActivityLog();}
 async function renderActivityLog(){
   const list=document.getElementById('activity-list');if(!list)return;
-  const entries=(await idbGetAll('activity')).sort((a,b)=>b.at-a.at).slice(0,200);
-  if(!entries.length){list.innerHTML='Nothing logged yet — upload a script or run a breakdown.';return;}
+  const all=(await idbGetAll('activity')).sort((a,b)=>b.at-a.at);
+  if(!all.length){list.innerHTML='Nothing logged yet — upload a script or run a breakdown.';return;}
+  const entries=all.slice(0,_activityLimit);
   let lastDate='',html='';
   for(const e of entries){
     const dateStr=new Date(e.at).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'});
     if(dateStr!==lastDate){html+=`<div style="margin-top:10px;font-weight:600;color:var(--text)">${esc(dateStr)}</div>`;lastDate=dateStr;}
     html+=`<div style="padding:3px 0">${ACTIVITY_ICONS[e.type]||'•'} ${esc(e.detail)}</div>`;
   }
+  if(all.length>_activityLimit)html+=`<button class="ghost" style="margin-top:10px" onclick="showMoreActivity()">Show more (${all.length-_activityLimit} older)</button>`;
   list.innerHTML=html;
 }
 function dlBlob(blob,fname){const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=fname;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),4000);}
+
+// BACKUP — export/import reduces data-loss risk (device switch, browser
+// storage eviction), it doesn't eliminate it; real guaranteed durability
+// needs cloud sync, a different kind of project than a free static app.
+// Deliberately excludes API keys (secrets — shouldn't end up in a file she
+// might email herself) and the audio cache (a regenerable TTS cache, not
+// source data). Import always MERGES, never overwrites existing data.
+async function exportAllData(){
+  const status=document.getElementById('backup-status');
+  status.textContent='Preparing export…';
+  try{
+    const payload={
+      version:1,
+      exportedAt:Date.now(),
+      scripts:loadSaved(),
+      coachLog:await idbGetAll('coachlog'),
+      activity:await idbGetAll('activity'),
+      patternsCache:loadPatternsCache(),
+    };
+    const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+    dlBlob(blob,`offbook-backup-${new Date().toISOString().slice(0,10)}.json`);
+    status.textContent=`✓ Exported ${payload.scripts.length} script${payload.scripts.length===1?'':'s'}, ${payload.coachLog.length} coaching note${payload.coachLog.length===1?'':'s'}, ${payload.activity.length} activity entries.`;
+  }catch(e){
+    status.textContent='⚠ Export failed: '+e.message;
+  }
+}
+async function importAllData(file){
+  const status=document.getElementById('backup-status');
+  if(!file)return;
+  status.textContent='Reading file…';
+  try{
+    const payload=JSON.parse(await file.text());
+    if(!payload||typeof payload!=='object')throw new Error('not-valid');
+
+    // Scripts: add any whose name doesn't already exist — never overwrite
+    // current data on import, the safe default. No cap re-applied here —
+    // writeSaved() is a raw writer everywhere else in the app too; the
+    // 30-script cap lives specifically in saveCurrent(), not here.
+    const existing=loadSaved();
+    const existingNames=new Set(existing.map(s=>s.name));
+    let added=0,skipped=0;
+    const merged=[...existing];
+    for(const s of (Array.isArray(payload.scripts)?payload.scripts:[])){
+      if(!s||!s.name||existingNames.has(s.name)){skipped++;continue;}
+      merged.push(s);existingNames.add(s.name);added++;
+    }
+    writeSaved(merged);
+
+    // Coaching log + Activity: add by id, skip ids already present — makes
+    // re-importing the same file idempotent and harmless.
+    let logAdded=0;
+    const existingLogIds=new Set((await idbGetAll('coachlog')).map(e=>e.id));
+    for(const e of (Array.isArray(payload.coachLog)?payload.coachLog:[])){
+      if(!e||!e.id||existingLogIds.has(e.id))continue;
+      await idbAdd('coachlog',e);logAdded++;
+    }
+    let actAdded=0;
+    const existingActIds=new Set((await idbGetAll('activity')).map(e=>e.id));
+    for(const e of (Array.isArray(payload.activity)?payload.activity:[])){
+      if(!e||!e.id||existingActIds.has(e.id))continue;
+      await idbAdd('activity',e);actAdded++;
+    }
+
+    status.textContent=`✓ Imported ${added} script${added===1?'':'s'}${skipped?` (${skipped} skipped — already have ${skipped===1?'it':'them'})`:''}, ${logAdded} coaching note${logAdded===1?'':'s'}, ${actAdded} activity entries.`;
+    renderSaved();
+  }catch(e){
+    status.textContent='⚠ '+(e.message==='not-valid'||/JSON/i.test(e.message)?"That file isn't a valid Offbook backup.":'Import failed: '+e.message);
+  }
+  document.getElementById('import-file').value=''; // allow re-selecting the same file
+}
 
 // ===== JOB PILL (background audio work) =====
 let _audioJob=null;
@@ -2616,6 +2717,11 @@ if('serviceWorker' in navigator){
     }).catch(()=>{});
   });
 }
+// Ask the browser not to evict local data under storage pressure (iOS Safari
+// in particular can silently clear localStorage/IndexedDB after ~a week of
+// the app not being opened). Not a guarantee — the browser can decline —
+// which is exactly why the Export/Import feature exists as the real backstop.
+if('storage' in navigator && navigator.storage.persist){navigator.storage.persist().catch(()=>{});}
 </script>
 </body>
 </html>
