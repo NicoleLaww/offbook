@@ -157,6 +157,10 @@
   .wk-opt{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.05em;margin-left:4px;}
   #work-modal select,#work-modal textarea,#am-scene{width:100%;background:var(--s2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Mono',monospace;font-size:13px;padding:10px;line-height:1.5;margin-bottom:12px;}
   #work-modal textarea{resize:vertical;}
+  .wk-checklist{border-bottom:1px solid var(--border);padding-bottom:6px;margin-bottom:4px;}
+  .wk-cl-h{font-family:'Syne',sans-serif;font-weight:800;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-top:2px;}
+  .wk-cl-result{margin-top:2px;margin-bottom:12px;color:var(--text);font-size:13px;line-height:1.6;}
+  .wk-cl-result:empty{display:none;}
   .wk-out{margin-top:14px;color:var(--text);overflow-y:auto;flex:1;min-height:0;padding-right:6px;}
   .wk-out:empty{display:none;}
   .wk-out h4{font-family:'Syne',sans-serif;font-weight:800;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin:22px 0 8px;}
@@ -301,6 +305,20 @@
     <select id="wk-scene" onchange="onSceneChange()" style="display:none"></select>
     <label class="wk-l">I'm playing</label>
     <select id="wk-char" onchange="loadThread()"></select>
+    <div id="wk-checklist" class="wk-checklist">
+      <div class="wk-cl-h">Pre-take checklist</div>
+      <label class="wk-l">What am I literally DOING? <span class="wk-opt">the verb, not the feeling</span></label>
+      <textarea id="wk-cl-verb" rows="1" placeholder="e.g. diagnosing the patient" onblur="saveChecklistFields()"></textarea>
+      <label class="wk-l">Where does this sit? <span class="wk-opt">structurally — does it need to hook</span></label>
+      <textarea id="wk-cl-position" rows="1" placeholder="e.g. top of Act 2, pilot — needs to hook" onblur="saveChecklistFields()"></textarea>
+      <label class="wk-l">Escalate or de-escalate?</label>
+      <textarea id="wk-cl-direction" rows="1" placeholder="what the beat needs, and what I'm choosing" onblur="saveChecklistFields()"></textarea>
+      <div class="wk-actions-secondary" style="margin-top:10px">
+        <button class="ghost" id="wk-cl-gutbtn" onclick="gutCheck()">🧠 Gut check</button>
+        <span style="font-size:10px;color:var(--muted);align-self:center">Gives its own read on all three, and checks yours against it</span>
+      </div>
+      <div id="wk-cl-result" class="wk-cl-result"></div>
+    </div>
     <div id="wk-setup">
       <label class="wk-l">Casting / character breakdown <span class="wk-opt">optional</span></label>
       <textarea id="wk-brk" rows="2" placeholder="Paste the casting breakdown or character description…"></textarea>
@@ -591,7 +609,7 @@ const DEMO_LINES=[
 function startDemo(){
   demoMode=true;
   document.body.classList.add('demo');
-  SL=DEMO_LINES.map((l,i)=>({...l,id:i,isMine:l.char==='JESS'}));
+  SL=DEMO_LINES.map((l,i)=>({...l,id:i,scene:1,isMine:l.char==='JESS'}));
   curName='';
   document.getElementById('fname').textContent='Demo scene';
   buildScript();show('script-screen');
@@ -1130,7 +1148,7 @@ function mdToHtml(md){
   if(inUl)html+='</ul>';
   return html;
 }
-async function craftLLM(system,messages){
+async function craftLLM(system,messages,forceLight){
   if(uploadRoute==='free'){
     if(!gemKey)throw new Error('Public mode needs a free Gemini key.');
     const contents=messages.map(m=>({role:m.role==='assistant'?'model':'user',parts:[{text:m.content}]}));
@@ -1144,11 +1162,12 @@ async function craftLLM(system,messages){
     return (((d.candidates||[])[0]||{}).content||{}).parts&&d.candidates[0].content.parts[0].text||'';
   }
   if(!oai)throw new Error('Confidential mode needs your OpenAI key.');
-  // Model router: 4o for the heavy lifts (initial breakdown, Phase 2 kickoff), mini for follow-ups.
+  // Model router: 4o for the heavy lifts (initial breakdown, Phase 2 kickoff), mini for follow-ups
+  // and for anything that explicitly asks to stay cheap (e.g. the checklist gut-check).
   const isFirstBreakdown = messages.length===1;
   const lastUser = [...messages].reverse().find(m=>m.role==='user');
   const isPhase2Kickoff = lastUser && /phase\s*2/i.test(lastUser.content);
-  const model = (isFirstBreakdown || isPhase2Kickoff) ? MODELS.gptHeavy : MODELS.gptLight;
+  const model = forceLight ? MODELS.gptLight : ((isFirstBreakdown || isPhase2Kickoff) ? MODELS.gptHeavy : MODELS.gptLight);
   const r=await fetch('https://api.openai.com/v1/chat/completions',{
     method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+oai},
     body:JSON.stringify({model,max_tokens:2000,messages:[{role:'system',content:system},...messages]})
@@ -1181,6 +1200,70 @@ function setWork(scene,char,thread){
   if(curName){const arr=loadSaved();const s=arr.find(x=>x.name===curName);if(s){s.work=s.work||{};s.work[key]=thread;writeSaved(arr);return;}}
   _sessionWork[(curName||'demo')+'|'+key]=thread;
 }
+
+// PRE-TAKE CHECKLIST — three short self-answered questions (literal action,
+// structural position, escalate-vs-de-escalate), saved on the same per-scene
+// per-character thread as the breakdown chat. "Gut check" gives the AI's own
+// read on all three, grounded in the scene, and compares it against whatever
+// the actor already answered.
+function positionHint(){
+  const scene=getWkScene();
+  if(scene==='all')return '';
+  const total=new Set(SL.map(l=>l.scene)).size;
+  if(total<=1)return '';
+  const name=sceneNameFor(scene);
+  return `Scene ${scene} of ${total}`+(name?` — ${name}`:'');
+}
+function renderChecklist(thread){
+  const cl=(thread&&thread.checklist)||{};
+  document.getElementById('wk-cl-verb').value=cl.verb||'';
+  document.getElementById('wk-cl-position').value=cl.position||positionHint();
+  document.getElementById('wk-cl-direction').value=cl.direction||'';
+  document.getElementById('wk-cl-result').innerHTML=cl.gutCheck?mdToHtml(cl.gutCheck):'';
+}
+function saveChecklistFields(){
+  const scene=getWkScene(),char=document.getElementById('wk-char').value;
+  if(!char)return;
+  const thread=getWork(scene,char)||{messages:[]};
+  thread.checklist=thread.checklist||{};
+  thread.checklist.verb=document.getElementById('wk-cl-verb').value;
+  thread.checklist.position=document.getElementById('wk-cl-position').value;
+  thread.checklist.direction=document.getElementById('wk-cl-direction').value;
+  setWork(scene,char,thread);
+}
+const GUTCHECK_PROMPT=`You are a fast, sharp scene-work gut-check for an actor prepping a self-tape or audition — same direct craft voice as a full breakdown (Mamet/Meisner/McKee synthesized), but here you give ONE short, direct read, not a full breakdown. No hedging — banned: "perhaps," "one could argue," "you might consider."
+
+The actor is about to answer three questions before they rehearse: (1) what their character is literally DOING in the scene — a playable verb, not a mood; (2) where the scene sits structurally, and what the story needs it to DO there (e.g. a scene near the top of Act 2 in a pilot has to hook, not settle); (3) whether the beat calls for escalating or de-escalating, and which they're choosing.
+
+Give YOUR OWN read on all three, grounded in the scene text — don't just wait to be handed answers. If the actor also supplied their own answer for a question, compare it to your read: if it holds up, say so plainly and tell them what to commit harder to; if it's off, say exactly what's off and what to play instead. Common miss to watch for specifically: an actor playing it safe by de-escalating a beat that's actually built to escalate, especially early in a pilot where every scene is auditioning for a renewal.
+
+Respond in plain sentences, no headers, no bullets, 5-8 sentences total covering all three questions. End with one line naming the single biggest risk if the scene is played as currently answered (or, if a question was left blank, as an actor might default to playing it).`;
+async function gutCheck(){
+  const scene=getWkScene(),char=document.getElementById('wk-char').value;
+  if(!SL.length||!char)return;
+  saveChecklistFields();
+  const btn=document.getElementById('wk-cl-gutbtn'),resEl=document.getElementById('wk-cl-result');
+  btn.disabled=true;
+  resEl.innerHTML='<span style="color:var(--muted)">Thinking…</span>';
+  const thread=getWork(scene,char)||{messages:[],checklist:{}};
+  const cl=thread.checklist||{};
+  const _esc=t=>(t||'').replace(/<\/?(scene|answers)>/gi,'[tag]');
+  const answers=`Literal action: ${_esc(cl.verb)||'(not answered — give me your own read)'}\nStructural position: ${_esc(cl.position)||'(not answered — give me your own read)'}\nEscalate or de-escalate: ${_esc(cl.direction)||'(not answered — give me your own read)'}`;
+  const scopeNote = scene==='all' ? 'whole script' : `Scene ${scene}${sceneNameFor(scene)?` (${sceneNameFor(scene)})`:''}`;
+  const prompt=`I'm playing: ${char} — ${scopeNote}\n\n<answers>\n${answers}\n</answers>\n\n<scene>\n${_esc(sceneText(scene))}\n</scene>\n\nGive me the gut check.`;
+  try{
+    const reply=await craftLLM(GUTCHECK_PROMPT,[{role:'user',content:prompt}],true);
+    resEl.innerHTML=mdToHtml(reply);
+    thread.checklist=cl;
+    thread.checklist.gutCheck=reply;
+    thread.checklist.gutCheckAt=Date.now();
+    setWork(scene,char,thread);
+  }catch(e){
+    resEl.innerHTML='<span style="color:var(--accent)">⚠ '+esc(/fetch/i.test(e.message)?'Couldn\'t reach the model — check your key has credits':e.message)+'</span>';
+  }
+  btn.disabled=false;
+}
+
 let _editingIdx=-1;
 function renderThread(thread){
   const out=document.getElementById('wk-out');
@@ -1232,6 +1315,7 @@ function loadThread(){
   document.getElementById('wk-status').textContent='';
   _editingIdx=-1;
   renderThread(thread);
+  renderChecklist(thread);
 }
 async function sendWork(){
   const go=document.getElementById('wk-go'),st=document.getElementById('wk-status');
