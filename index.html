@@ -288,10 +288,11 @@
   <div id="saved"></div>
   <div id="coachlog-wrap" style="margin-top:28px;padding-top:20px;border-top:1px solid var(--border)">
     <div class="saved-h">Coaching log <span class="kfree">notes from real feedback — not tied to one script</span></div>
-    <textarea id="log-ta" class="log-ta" rows="2" placeholder="e.g. coach said I missed the hook at top of act 2, chose to de-escalate when it needed to fight…"></textarea>
+    <textarea id="log-ta" class="log-ta" rows="2" placeholder="e.g. coach said I missed the hook at top of act 2, chose to de-escalate when it needed to fight… (⌘/Ctrl+Enter to save)" onkeydown="if((event.metaKey||event.ctrlKey)&&event.key==='Enter'){event.preventDefault();addLogEntry();}"></textarea>
     <button class="ghost" onclick="addLogEntry()">+ Add note</button>
     <div id="log-list"></div>
     <div id="patterns-wrap" style="margin-top:16px"></div>
+    <div id="genre-wrap" style="margin-top:16px;padding-top:16px;border-top:1px dashed var(--border)"></div>
   </div>
   <div id="activity-wrap" style="margin-top:28px;padding-top:20px;border-top:1px solid var(--border)">
     <div class="saved-h">Activity <span class="kfree">automatic — uploads, revisions, breakdowns, gut-checks</span></div>
@@ -304,6 +305,7 @@
       <button class="ghost" onclick="document.getElementById('import-file').click()">⬆ Import</button>
       <input type="file" id="import-file" accept="application/json,.json" onchange="importAllData(this.files[0])" style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;clip:rect(0,0,0,0);">
     </div>
+    <div id="last-backup" style="font-size:11px;color:var(--muted);margin-top:8px"></div>
     <div id="backup-status" style="font-size:12px;color:var(--muted);margin-top:8px"></div>
   </div>
 </div>
@@ -573,12 +575,36 @@ function saveKeys(){
   show('step-upload');renderSaved();
 }
 
-// SAVED SCRIPTS — parsed scripts are cached in your browser (localStorage) so
-// you can re-load one instantly without paying to parse the PDF again.
+// SAVED SCRIPTS — backed by IndexedDB's 'scripts' store (localStorage's
+// ~5-10MB ceiling is what forced the old 30-script cap). loadSaved()/
+// writeSaved() stay synchronous on the outside — every one of their ~39
+// call sites across the app (getWork/setWork/saveCurrent/revision carryover/
+// export-import/Patterns/Activity, none of which touch storage directly)
+// keeps working completely unchanged; only what's underneath moved.
 let curName='';
-function loadSaved(){try{return JSON.parse(localStorage.getItem('offbook_scripts')||'[]');}catch(e){return [];}}
-function writeSaved(arr){try{localStorage.setItem('offbook_scripts',JSON.stringify(arr));}catch(e){}}
-// Returns the name of the script evicted to stay under the 30-script cap
+let _scriptsCache=null; // null until the initial load resolves; array once ready
+async function initScriptsCache(){
+  if(!localStorage.getItem('offbook_scripts_migrated')){
+    let legacy=[];
+    try{legacy=JSON.parse(localStorage.getItem('offbook_scripts')||'[]');}catch(e){}
+    if(legacy.length)await idbSet('scripts','all',legacy);
+    localStorage.setItem('offbook_scripts_migrated','1');
+    // old localStorage key deliberately left in place, untouched — inert
+    // once migrated, zero risk of data loss if anything here goes wrong.
+  }
+  const loaded=(await idbGet('scripts','all'))||[];
+  // Only adopt the loaded data if nothing has already written to the cache
+  // in the meantime — a write landing during this brief startup gap is
+  // newer and must not be clobbered by this late-arriving initial read.
+  if(_scriptsCache===null)_scriptsCache=loaded;
+}
+initScriptsCache(); // fire immediately at script load, not gated on any user action
+function loadSaved(){return _scriptsCache||[];}
+function writeSaved(arr){
+  _scriptsCache=arr; // synchronous — every caller's next loadSaved() sees this instantly, no race
+  idbSet('scripts','all',arr); // fire-and-forget background persist, same pattern as logActivity()
+}
+// Returns the name of the script evicted to stay under the 500-script cap
 // (oldest survives longest since rest.unshift puts the current one first),
 // or null if nothing was evicted — so a fresh upload can tell you it happened
 // instead of it silently disappearing from the list.
@@ -587,9 +613,13 @@ function saveCurrent(){
   const arr=loadSaved();
   const work=(arr.find(s=>s.name===curName)||{}).work||{};
   const rest=arr.filter(s=>s.name!==curName);
-  rest.unshift({name:curName,work,lines:SL.map(l=>({char:l.char,direction:l.direction,text:l.text,before:l.before||'',after:l.after||'',isMine:!!l.isMine,cut:!!l.cut,sceneStart:!!l.sceneStart,sceneHeading:l.sceneHeading||'',sceneLabel:l.sceneLabel||'',carried:!!l.carried}))});
-  const evicted = rest.length>30 ? rest[30].name : null;
-  writeSaved(rest.slice(0,30));
+  rest.unshift({name:curName,work,lines:SL.map(l=>({char:l.char,direction:l.direction,text:l.text,before:l.before||'',after:l.after||'',isMine:!!l.isMine,cut:!!l.cut,sceneStart:!!l.sceneStart,sceneHeading:l.sceneHeading||'',sceneLabel:l.sceneLabel||'',carried:!!l.carried,carriedFrom:l.carriedFrom||'',carriedFuzzy:!!l.carriedFuzzy}))});
+  // 500, not 30 — now backed by IndexedDB, not localStorage's ~5-10MB
+  // ceiling, so this is a sanity ceiling against pathological growth, not
+  // the real constraint it used to be. No realistic multi-year acting
+  // career gets near it.
+  const evicted = rest.length>500 ? rest[500].name : null;
+  writeSaved(rest.slice(0,500));
   renderSaved();
   return evicted;
 }
@@ -651,6 +681,8 @@ function renderSaved(){
   renderRevisionPicker();
   renderCoachLog();
   renderActivityLog(); // async, not awaited — list shows "Loading…" briefly then fills in, doesn't block this render
+  renderLastBackupLabel();
+  renderGenreGate(); // called here too (not just after the forEach below) so the empty-state gate still shows with zero saved scripts
   const box=document.getElementById('saved');if(!box)return;
   const arr=loadSaved();box.innerHTML='';
   if(!arr.length)return;
@@ -663,7 +695,21 @@ function renderSaved(){
   arr.forEach(s=>{
     const mine=s.lines.filter(l=>l.isMine).length;
     const row=document.createElement('div');row.className='saved-item';
-    row.innerHTML=`<div class="nm">${esc(s.name)}</div><div class="mt">${s.lines.length} lines${mine?' · '+mine+' yours':''}</div>`;
+    const info=document.createElement('div');info.style.cssText='flex:1;min-width:0';
+    info.innerHTML=`<div class="nm">${esc(s.name)}</div><div class="mt">${s.lines.length} lines${mine?' · '+mine+' yours':''}</div>`;
+    // Optional, manual — free-text since acting genres don't fit a fixed
+    // enum ("dramedy", "psychological thriller"). Feeds the genre comparison
+    // below; a script with no genre set just doesn't count toward it.
+    const genreInput=document.createElement('input');
+    genreInput.type='text';genreInput.placeholder='genre (optional)';genreInput.value=s.genre||'';
+    genreInput.style.cssText="margin-top:4px;width:100%;background:transparent;border:none;border-bottom:1px dashed var(--border);color:var(--muted);font-family:'DM Mono',monospace;font-size:10px;padding:2px 0;outline:none;";
+    genreInput.addEventListener('click',e=>e.stopPropagation());
+    genreInput.addEventListener('blur',()=>{
+      const v=genreInput.value.trim();
+      if((s.genre||'')!==v){s.genre=v;writeSaved(loadSaved());renderGenreGate();}
+    });
+    info.appendChild(genreInput);
+    row.appendChild(info);
     const ld=document.createElement('button');ld.className='ld';ld.textContent='Load';ld.onclick=()=>loadScript(s.name);
     const del=document.createElement('button');del.className='del';del.textContent='✕';del.title='Delete';del.onclick=()=>delScript(s.name);
     row.appendChild(ld);row.appendChild(del);box.appendChild(row);
@@ -736,22 +782,38 @@ async function patternsDataCount(){return (await loadCoachLog()).length+checklis
 // different content). Caps raised from 40/60 to 150/200 — years of moderate
 // use instead of a couple months — still cheap: a few thousand extra tokens
 // on the light model, only spent when she actually taps the button.
+// Returns both the flat strings the prompt uses AND a structured `sources`
+// summary (counts + which scripts) — one pass, so the "what was this based
+// on" disclosure can never drift from what the prompt actually saw.
 async function buildPatternsDigest(){
-  const logEntries=(await loadCoachLog()).slice(0,150).map(e=>'- '+e.text).join('\n');
-  const digestParts=[];
+  const allLog=await loadCoachLog();
+  const logEntries=allLog.slice(0,150);
+  const items=[];
   for(const s of loadSaved()){
     if(!s.work)continue;
     for(const k in s.work){
       const cl=s.work[k].checklist;if(!cl)continue;
       const bits=[cl.verb&&`verb: ${cl.verb}`,cl.position&&`position: ${cl.position}`,cl.direction&&`direction: ${cl.direction}`,cl.gutCheck&&`gut-check: ${cl.gutCheck}`].filter(Boolean);
-      if(bits.length)digestParts.push(`[${s.name} — ${k}] `+bits.join(' · '));
+      if(bits.length)items.push({scriptName:s.name,line:`[${s.name} — ${k}] `+bits.join(' · ')});
     }
   }
-  return {logEntries, digest:digestParts.slice(0,200).join('\n')};
+  const usedItems=items.slice(0,200);
+  const scripts={};
+  for(const it of usedItems)scripts[it.scriptName]=(scripts[it.scriptName]||0)+1;
+  return {
+    logEntries: logEntries.map(e=>'- '+e.text).join('\n'),
+    digest: usedItems.map(it=>it.line).join('\n'),
+    sources: {logUsed:logEntries.length, logTotal:allLog.length, checklistUsed:usedItems.length, checklistTotal:items.length, scripts},
+  };
 }
 async function patternsSignature(){const {logEntries,digest}=await buildPatternsDigest();return logEntries+'\n---\n'+digest;}
 function loadPatternsCache(){try{return JSON.parse(localStorage.getItem('offbook_patterns')||'null');}catch(e){return null;}}
-async function savePatternsCache(reply){try{localStorage.setItem('offbook_patterns',JSON.stringify({reply,signature:await patternsSignature(),at:Date.now()}));}catch(e){}}
+async function savePatternsCache(reply){
+  try{
+    const {logEntries,digest,sources}=await buildPatternsDigest();
+    localStorage.setItem('offbook_patterns',JSON.stringify({reply,signature:logEntries+'\n---\n'+digest,sources,at:Date.now()}));
+  }catch(e){}
+}
 async function renderPatternsGate(){
   const wrap=document.getElementById('patterns-wrap');if(!wrap)return;
   const n=await patternsDataCount();
@@ -761,9 +823,81 @@ async function renderPatternsGate(){
   }
   const cached=loadPatternsCache();
   const stale=cached&&cached.signature!==await patternsSignature();
+  let sourcesHtml='';
+  if(cached&&cached.sources){
+    const s=cached.sources;
+    const scriptLines=Object.entries(s.scripts||{}).map(([name,count])=>`${esc(name)} (${count})`).join(', ')||'none';
+    const logNote = s.logTotal>s.logUsed ? ` — ${s.logTotal-s.logUsed} older note${s.logTotal-s.logUsed===1?'':'s'} not included` : '';
+    const clNote = s.checklistTotal>s.checklistUsed ? ` — ${s.checklistTotal-s.checklistUsed} older entr${s.checklistTotal-s.checklistUsed===1?'y':'ies'} not included` : '';
+    // Native <details> — an expandable disclosure with zero extra JS/state.
+    sourcesHtml=`<details style="margin-top:8px;font-size:11px;color:var(--muted)">
+      <summary style="cursor:pointer;color:var(--accent)">What was this based on?</summary>
+      <div style="margin-top:6px;line-height:1.6">${s.logUsed} of ${s.logTotal} logged note${s.logTotal===1?'':'s'}${logNote}.<br>${s.checklistUsed} of ${s.checklistTotal} checklist entr${s.checklistTotal===1?'y':'ies'}${clNote}, from: ${scriptLines}.</div>
+    </details>`;
+  }
   wrap.innerHTML=`<button class="ghost" id="patterns-btn" onclick="runPatterns()">🧭 Coach's Notes</button>`
     +(stale?`<div style="font-size:11px;color:var(--muted);margin-top:6px">New data since this last ran — tap to refresh.</div>`:'')
-    +`<div id="patterns-result" style="margin-top:10px">${cached?mdToHtml(cached.reply):''}</div>`;
+    +`<div id="patterns-result" style="margin-top:10px">${cached?mdToHtml(cached.reply):''}</div>`
+    +sourcesHtml;
+}
+
+// GENRE COMPARISON — manual, on-demand, cheap (forced light model, same as
+// Coach's Notes). Genre is a free-text tag she sets per script herself (see
+// renderSaved()) — no AI inference, no extra cost just to know a script's
+// genre. Gated on at least 2 different tagged genres, since comparing one
+// genre to itself isn't a comparison.
+function genreCounts(){
+  const counts={};
+  for(const s of loadSaved()){
+    const g=(s.genre||'').trim();if(!g)continue;
+    counts[g]=(counts[g]||0)+1;
+  }
+  return counts;
+}
+function loadGenreCache(){try{return JSON.parse(localStorage.getItem('offbook_genre')||'null');}catch(e){return null;}}
+function renderGenreGate(){
+  const wrap=document.getElementById('genre-wrap');if(!wrap)return;
+  const counts=genreCounts();
+  const genres=Object.keys(counts);
+  if(genres.length<2){
+    wrap.innerHTML=`<div style="font-size:11px;color:var(--muted)">Tag at least 2 scripts with different genres (next to each saved script above) to compare patterns across them.</div>`;
+    return;
+  }
+  const cached=loadGenreCache();
+  wrap.innerHTML=`<button class="ghost" id="genre-btn" onclick="runGenreAnalysis()">🎭 Compare by genre</button>`
+    +`<div style="font-size:11px;color:var(--muted);margin-top:6px">Tagged: ${genres.map(g=>`${esc(g)} (${counts[g]})`).join(', ')}</div>`
+    +`<div id="genre-result" style="margin-top:10px">${cached?mdToHtml(cached.reply):''}</div>`;
+}
+const GENRE_PROMPT=`You're comparing an actor's scene-work checklist history ACROSS GENRES — not her overall patterns, specifically what differs genre to genre. Same direct, no-hedging craft voice as the rest of her tool (banned: "perhaps," "one could argue," "you might consider").
+
+Find 1-3 genuine differences in how she plays scenes by genre — e.g. does she escalate more readily in one genre than another, do her verb choices shift, does she default to a tendency in one genre specifically that doesn't show up in others. Cite a concrete instance for each. This is a coach comparing her tapes across different kinds of material, not a genre-trivia summary.
+
+If a genre doesn't have enough data to say anything real about it, name that plainly instead of forcing a comparison — a false comparison is worse than an honest "not enough here yet."`;
+async function runGenreAnalysis(){
+  const btn=document.getElementById('genre-btn'),resEl=document.getElementById('genre-result');
+  if(btn)btn.disabled=true;
+  if(resEl)resEl.innerHTML='<span style="color:var(--muted)">Thinking…</span>';
+  const byGenre={};
+  for(const s of loadSaved()){
+    const g=(s.genre||'').trim();if(!g||!s.work)continue;
+    for(const k in s.work){
+      const cl=s.work[k].checklist;if(!cl)continue;
+      const bits=[cl.verb&&`verb: ${cl.verb}`,cl.position&&`position: ${cl.position}`,cl.direction&&`direction: ${cl.direction}`,cl.gutCheck&&`gut-check: ${cl.gutCheck}`].filter(Boolean);
+      if(bits.length){byGenre[g]=byGenre[g]||[];byGenre[g].push(`[${s.name} — ${k}] `+bits.join(' · '));}
+    }
+  }
+  const _esc=t=>(t||'').replace(/<\/?genre>/gi,'[tag]');
+  const body=Object.entries(byGenre).map(([g,lines])=>`GENRE: ${_esc(g)}\n${_esc(lines.join('\n'))}`).join('\n\n---\n\n');
+  const prompt=`<genredata>\n${body||'(no tagged checklist data yet)'}\n</genredata>\n\nCompare across genres.`;
+  try{
+    const reply=await craftLLM(GENRE_PROMPT,[{role:'user',content:prompt}],true);
+    localStorage.setItem('offbook_genre',JSON.stringify({reply,at:Date.now()}));
+    if(resEl)resEl.innerHTML=mdToHtml(reply);
+    logActivity('genre',"Genre comparison run");
+  }catch(e){
+    if(resEl)resEl.innerHTML='<span style="color:var(--accent)">⚠ '+esc(/fetch/i.test(e.message)?'Couldn\'t reach the model — check your key has credits':e.message)+'</span>';
+  }
+  if(btn)btn.disabled=false;
 }
 
 // DEMO — a keyless taste of the product. The scoring/diff is all client-side,
@@ -937,28 +1071,81 @@ async function doPDF(file){
         let n=0;
         const oldLines=source.lines.map((l,i)=>{const starts=i===0||l.sceneStart;if(starts)n++;return {...l,scene:n,_sceneFirst:starts};});
         const oldScenes=[...new Set(oldLines.map(l=>l.scene))];
-        return {source,oldLines,oldFpToScene:new Map(oldScenes.map(s=>[sceneFingerprint(oldLines,s),s]))};
+        return {source,oldLines,oldScenes,oldFpToScene:new Map(oldScenes.map(s=>[sceneFingerprint(oldLines,s),s])),claimed:new Set()};
       });
+      // Applies whichever match (exact or fuzzy) was found for scene `ns` from
+      // candidate `p`'s old scene `os` — shared by both passes below so the
+      // work/label/badge logic isn't duplicated.
+      function applyCarry(p,os,ns,fuzzy){
+        p.claimed.add(os);carriedCount++;contributedNames.add(p.source.name);
+        const oldChars=[...new Set(p.oldLines.filter(l=>l.scene===os).map(l=>l.char))];
+        for(const c of oldChars){
+          const oldEntry=p.source.work&&p.source.work[workKey(os,c)];
+          if(oldEntry)newWork[workKey(ns,c)]=oldEntry;
+        }
+        const oldFirst=p.oldLines.find(l=>l.scene===os&&l._sceneFirst);
+        const newFirst=SL.find(l=>l.scene===ns&&l._sceneFirst);
+        if(oldFirst&&oldFirst.sceneLabel&&newFirst)newFirst.sceneLabel=oldFirst.sceneLabel;
+        if(newFirst){
+          newFirst.carried=true;newFirst.carriedFrom=p.source.name;
+          if(fuzzy)newFirst.carriedFuzzy=true; // shown as a distinct "possible match — verify" badge, not the same green "carried over" one
+        }
+        // Carry per-line isMine/cut too, not just the breakdown — a scene
+        // showing "carried over" used to still silently wipe which lines
+        // were marked hers and which were cut, on EVERY upload including a
+        // 100%-unchanged revision. Aligned by position within the scene
+        // (a matched scene has essentially the same lines in the same
+        // order) and gated on the character matching at that position too,
+        // so a shifted line count skips the uncertain pairs rather than
+        // misattributing one character's mark to another's line.
+        const oldSceneLines=p.oldLines.filter(l=>l.scene===os);
+        const newSceneLines=SL.filter(l=>l.scene===ns);
+        const n=Math.min(oldSceneLines.length,newSceneLines.length);
+        for(let i=0;i<n;i++){
+          if(oldSceneLines[i].char===newSceneLines[i].char){
+            newSceneLines[i].isMine=!!oldSceneLines[i].isMine;
+            newSceneLines[i].cut=!!oldSceneLines[i].cut;
+          }
+        }
+      }
       const newScenes=[...new Set(SL.map(l=>l.scene))];
+      const unmatched=[];
       for(const ns of newScenes){
         const fp=sceneFingerprint(SL,ns);
         let matched=false;
-        for(const {source,oldLines,oldFpToScene} of prepared){
-          const os=oldFpToScene.get(fp);
-          if(os==null)continue;
-          matched=true;carriedCount++;contributedNames.add(source.name);
-          const oldChars=[...new Set(oldLines.filter(l=>l.scene===os).map(l=>l.char))];
-          for(const c of oldChars){
-            const oldEntry=source.work&&source.work[workKey(os,c)];
-            if(oldEntry)newWork[workKey(ns,c)]=oldEntry;
-          }
-          const oldFirst=oldLines.find(l=>l.scene===os&&l._sceneFirst);
-          const newFirst=SL.find(l=>l.scene===ns&&l._sceneFirst);
-          if(oldFirst&&oldFirst.sceneLabel&&newFirst)newFirst.sceneLabel=oldFirst.sceneLabel;
-          if(newFirst)newFirst.carried=true; // persistent marker, not a toast — shown as a badge on the scene header (buildScript)
+        for(const p of prepared){
+          const os=p.oldFpToScene.get(fp);
+          if(os==null||p.claimed.has(os))continue;
+          matched=true;applyCarry(p,os,ns,false);
           break; // first matching candidate wins this scene
         }
-        if(!matched)newSceneCount++;
+        if(!matched)unmatched.push(ns);
+      }
+      // Fuzzy fallback — only for scenes the exact pass couldn't place. Reuses
+      // the rehearsal scorer's proven word-match machinery (tokenize/
+      // bestMatches, covered by test-scorer.mjs) instead of a new algorithm.
+      // High bar (92%, stricter than the rehearsal drill's own 82% word-mode
+      // pass threshold) since misattaching a whole scene's Scene Work is a
+      // worse failure than a rehearsal false-pass. Marked distinctly
+      // (carriedFuzzy) so this trade — catching an OCR'd-slightly-differently
+      // revision, at the cost of occasionally guessing — stays visible, not silent.
+      const FUZZY_THRESHOLD=0.92;
+      const sceneTokens=(lines,scene)=>tokenize(lines.filter(l=>l.scene===scene).map(l=>l.text).join(' ')).map(t=>t.n);
+      for(const ns of unmatched){
+        const nsTokens=sceneTokens(SL,ns);
+        if(!nsTokens.length){newSceneCount++;continue;}
+        let best=null,bestRatio=0;
+        for(const p of prepared){
+          for(const os of p.oldScenes){
+            if(p.claimed.has(os))continue;
+            const osTokens=sceneTokens(p.oldLines,os);
+            if(!osTokens.length)continue;
+            const ratio=bestMatches(nsTokens,osTokens,true).length/Math.max(nsTokens.length,osTokens.length);
+            if(ratio>bestRatio){bestRatio=ratio;best={p,os};}
+          }
+        }
+        if(best&&bestRatio>=FUZZY_THRESHOLD)applyCarry(best.p,best.os,ns,true);
+        else newSceneCount++;
       }
       const scriptChanged=newSceneCount>0;
       // Story Analysis is whole-script, not per-scene — it can't be verified
@@ -988,12 +1175,12 @@ async function doPDF(file){
     if(revPickEl)revPickEl.value=''; // don't let a stale pick carry into the NEXT unrelated upload
     curName=file.name;
     const evicted=saveCurrent();
-    const evictNote = evicted ? ` (dropped your oldest saved script, "${evicted}", to stay under 30)` : '';
+    const evictNote = evicted ? ` (dropped your oldest saved script, "${evicted}", to stay under 500)` : '';
     const revNote = (carriedCount||storyCarried)
       ? ` — carried over ${carriedCount?`${carriedCount} unchanged scene${carriedCount>1?'s':''}`:''}${carriedCount&&storyCarried?' + ':''}${storyCarried?'Story Analysis':''}${newSceneCount?` (${newSceneCount} scene${newSceneCount>1?'s':''} new/changed — re-run Story Analysis for an accurate read)`:''}`
       : '';
     document.getElementById('upst').textContent=`✓ ${SL.length} lines found`+revNote+failNote+evictNote;
-    logActivity(revNote?'revision':'upload', `${file.name} — ${SL.length} lines`+(revNote?revNote:''));
+    logActivity(revNote?'revision':'upload', `${file.name} — ${SL.length} lines`+(revNote?revNote:''), file.name);
     setTimeout(()=>{buildScript();show('script-screen');},300);
 
   }catch(e){
@@ -1291,10 +1478,37 @@ function buildScript(){
       const h=document.createElement('div');
       h.className='sl-scene';
       const name=sceneNameFor(l.scene);
-      h.innerHTML=`<span>Scene ${l.scene}<span id="sl-scene-name-${l.scene}">${name?' — '+esc(name):''}</span>${l.carried?' <span title="This scene\'s Scene Work carried over from a prior save — unchanged since then" style="font-size:9px;color:var(--green);border:1px solid var(--green);border-radius:4px;padding:1px 5px;vertical-align:middle">↩ carried over</span>':''}</span>`
+      // Fuzzy matches render distinctly (amber, "possible match") from exact
+      // ones (green, "carried over") — the uncertainty a fuzzy match trades
+      // in for OCR/re-parse robustness stays visible, not silent.
+      const badgeColor=l.carriedFuzzy?'var(--amber)':'var(--green)';
+      const badgeLabel=l.carriedFuzzy?'↩ possible match — verify':'↩ carried over';
+      h.innerHTML=`<span>Scene ${l.scene}<span id="sl-scene-name-${l.scene}">${name?' — '+esc(name):''}</span>${l.carried?` <span class="carried-badge" style="font-size:9px;color:${badgeColor};border:1px solid ${badgeColor};border-radius:4px;padding:1px 5px;vertical-align:middle">${badgeLabel}</span>`:''}${l.carriedFuzzy?` <button class="sl-scene-confirm" title="Confirm this is the right match — clears the warning for free, no AI call" style="font-size:9px;padding:1px 6px;font-family:'DM Mono',monospace;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--muted);cursor:pointer">✓ looks good</button>`:''}</span>`
         +`<span class="sl-scene-btns"><button class="sl-scene-rename" title="Name this scene">✎ rename</button>`
         +(l.id!==SL[0].id?`<button class="sl-scene-merge" title="Merge into the previous scene">merge ↑</button>`:'')
         +`</span>`;
+      if(l.carriedFuzzy){
+        // Confirming is free — it only flips carriedFuzzy off and re-renders
+        // as a normal green "carried over" badge. Redo (elsewhere) is the
+        // only other way to clear it today, and that costs an AI call even
+        // when all she wanted to say was "yep, checked, this one's right."
+        h.querySelector('.sl-scene-confirm').addEventListener('click',e=>{
+          e.stopPropagation();
+          l.carriedFuzzy=false;
+          buildScript();
+          saveCurrent();
+        });
+      }
+      if(l.carried){
+        // .title set as a property, not baked into the HTML string — a
+        // source filename could contain a literal " and break out of a
+        // double-quoted attribute, the same trap the scene-rename input hit.
+        const badge=h.querySelector('.carried-badge');
+        const source=l.carriedFrom?` from ${l.carriedFrom}`:' from a prior save';
+        badge.title=l.carriedFuzzy
+          ? `This scene looks similar to one${source} but isn't word-for-word identical — the Scene Work attached may not match. Hit 🔄 Redo to confirm.`
+          : `This scene's Scene Work carried over${source} — unchanged since then`;
+      }
       h.querySelector('.sl-scene-rename').addEventListener('click',e=>{e.stopPropagation();renameScene(l.scene);});
       const mb=h.querySelector('.sl-scene-merge');
       if(mb)mb.addEventListener('click',e=>{e.stopPropagation();toggleSceneStart(l.id);});
@@ -1613,7 +1827,7 @@ async function gutCheck(){
     thread.checklist.gutCheck=reply;
     thread.checklist.gutCheckAt=Date.now();
     setWork(scene,char,thread);
-    logActivity('gutcheck', `${curName||'demo'} — ${wkSceneLabel(scene)} (${char})`);
+    logActivity('gutcheck', `${curName||'demo'} — ${wkSceneLabel(scene)} (${char})`, curName||null);
   }catch(e){
     resEl.innerHTML='<span style="color:var(--accent)">⚠ '+esc(/fetch/i.test(e.message)?'Couldn\'t reach the model — check your key has credits':e.message)+'</span>';
   }
@@ -1773,7 +1987,7 @@ async function sendWork(){
     renderThread(thread);
     loadThread();
     st.textContent='';
-    if(isFreshBreakdown)logActivity('breakdown', `${curName||'demo'} — ${wkSceneLabel(scene)} (${char})`);
+    if(isFreshBreakdown)logActivity('breakdown', `${curName||'demo'} — ${wkSceneLabel(scene)} (${char})`, curName||null);
   }catch(e){st.textContent='⚠ '+(/fetch/i.test(e.message)?'Couldn\'t reach the model — check your key has credits':e.message);}
   _wkJobRunning=false;
   setWkButtonsBusy(false);
@@ -2020,22 +2234,27 @@ function encodeWAV(samples,sr){
 // v2 adds 'activity' (the permanent, automatic history log) alongside the
 // original 'audio' cache store — same database, same proven pattern, so the
 // audio cache is untouched by this and needs no migration of its own.
-function idbOpen(){return new Promise((res,rej)=>{const r=indexedDB.open('offbook',3);r.onupgradeneeded=()=>{
+function idbOpen(){return new Promise((res,rej)=>{const r=indexedDB.open('offbook',4);r.onupgradeneeded=()=>{
   if(!r.result.objectStoreNames.contains('audio'))r.result.createObjectStore('audio');
   if(!r.result.objectStoreNames.contains('activity'))r.result.createObjectStore('activity',{keyPath:'id'});
   if(!r.result.objectStoreNames.contains('coachlog'))r.result.createObjectStore('coachlog',{keyPath:'id'});
+  if(!r.result.objectStoreNames.contains('scripts'))r.result.createObjectStore('scripts'); // plain key-value, same shape as 'audio' — writeSaved() always writes the whole array as one blob
 };r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});}
-async function idbGet(k){try{const db=await idbOpen();return await new Promise(res=>{const t=db.transaction('audio').objectStore('audio').get(k);t.onsuccess=()=>res(t.result||null);t.onerror=()=>res(null);});}catch(e){return null;}}
-async function idbSet(k,v){try{const db=await idbOpen();await new Promise(res=>{const t=db.transaction('audio','readwrite').objectStore('audio').put(v,k);t.onsuccess=()=>res();t.onerror=()=>res();});}catch(e){}}
-async function idbGetAll(store){try{const db=await idbOpen();return await new Promise(res=>{const t=db.transaction(store).objectStore(store).getAll();t.onsuccess=()=>res(t.result||[]);t.onerror=()=>res([]);});}catch(e){return [];}}
-async function idbAdd(store,v){try{const db=await idbOpen();await new Promise(res=>{const t=db.transaction(store,'readwrite').objectStore(store).put(v);t.onsuccess=()=>res();t.onerror=()=>res();});}catch(e){}}
-async function idbDelete(store,id){try{const db=await idbOpen();await new Promise(res=>{const t=db.transaction(store,'readwrite').objectStore(store).delete(id);t.onsuccess=()=>res();t.onerror=()=>res();});}catch(e){}}
+// Each call opens its own connection (no pooling) and closes it once its own
+// transaction settles — previously left every connection open for the life
+// of the page, four stores' worth accumulating with no way to ever cleanly
+// wipe the database. Closing after the awaited result, not before.
+async function idbGet(store,k){try{const db=await idbOpen();const v=await new Promise(res=>{const t=db.transaction(store).objectStore(store).get(k);t.onsuccess=()=>res(t.result===undefined?null:t.result);t.onerror=()=>res(null);});db.close();return v;}catch(e){return null;}}
+async function idbSet(store,k,v){try{const db=await idbOpen();await new Promise(res=>{const t=db.transaction(store,'readwrite').objectStore(store).put(v,k);t.onsuccess=()=>res();t.onerror=()=>res();});db.close();}catch(e){}}
+async function idbGetAll(store){try{const db=await idbOpen();const v=await new Promise(res=>{const t=db.transaction(store).objectStore(store).getAll();t.onsuccess=()=>res(t.result||[]);t.onerror=()=>res([]);});db.close();return v;}catch(e){return [];}}
+async function idbAdd(store,v){try{const db=await idbOpen();await new Promise(res=>{const t=db.transaction(store,'readwrite').objectStore(store).put(v);t.onsuccess=()=>res();t.onerror=()=>res();});db.close();}catch(e){}}
+async function idbDelete(store,id){try{const db=await idbOpen();await new Promise(res=>{const t=db.transaction(store,'readwrite').objectStore(store).delete(id);t.onsuccess=()=>res();t.onerror=()=>res();});db.close();}catch(e){}}
 // Automatic, permanent record of what happened — distinct from the manual
 // Coaching Log (her own typed notes). Fire-and-forget: never awaited at the
 // call site, and idbAdd already swallows its own errors, so a logging
 // failure can never block or break the feature that triggered it.
-function logActivity(type,detail){idbAdd('activity',{id:Date.now()+'-'+Math.random().toString(36).slice(2),at:Date.now(),type,detail});}
-const ACTIVITY_ICONS={upload:'📄',revision:'🔁',breakdown:'🎬',gutcheck:'🧠',patterns:'🧭'};
+function logActivity(type,detail,scriptName){idbAdd('activity',{id:Date.now()+'-'+Math.random().toString(36).slice(2),at:Date.now(),type,detail,scriptName:scriptName||null});}
+const ACTIVITY_ICONS={upload:'📄',revision:'🔁',breakdown:'🎬',gutcheck:'🧠',patterns:'🧭',genre:'🎭'};
 // Session-scoped, not persisted — resets to 50 on reload, grows via "Show
 // more" so years of history stay reachable instead of hard-capped forever.
 let _activityLimit=50;
@@ -2045,14 +2264,36 @@ async function renderActivityLog(){
   const all=(await idbGetAll('activity')).sort((a,b)=>b.at-a.at);
   if(!all.length){list.innerHTML='Nothing logged yet — upload a script or run a breakdown.';return;}
   const entries=all.slice(0,_activityLimit);
-  let lastDate='',html='';
+  // Build via DOM, not string-built onclick= — a script name could contain a
+  // quote and break out of an inline attribute, same trap the scene-rename
+  // input hit earlier; a closure sidesteps it entirely.
+  const savedNames=new Set(loadSaved().map(s=>s.name));
+  list.innerHTML='';
+  let lastDate='';
   for(const e of entries){
     const dateStr=new Date(e.at).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'});
-    if(dateStr!==lastDate){html+=`<div style="margin-top:10px;font-weight:600;color:var(--text)">${esc(dateStr)}</div>`;lastDate=dateStr;}
-    html+=`<div style="padding:3px 0">${ACTIVITY_ICONS[e.type]||'•'} ${esc(e.detail)}</div>`;
+    if(dateStr!==lastDate){
+      const h=document.createElement('div');h.style.cssText='margin-top:10px;font-weight:600;color:var(--text)';h.textContent=dateStr;
+      list.appendChild(h);lastDate=dateStr;
+    }
+    const row=document.createElement('div');
+    row.style.cssText='padding:3px 0';
+    row.textContent=`${ACTIVITY_ICONS[e.type]||'•'} ${e.detail}`;
+    const clickable=e.scriptName&&savedNames.has(e.scriptName);
+    if(clickable){
+      row.style.cursor='pointer';row.title=`Open ${e.scriptName}`;
+      row.addEventListener('click',()=>loadScript(e.scriptName));
+      row.addEventListener('mouseenter',()=>row.style.color='var(--accent)');
+      row.addEventListener('mouseleave',()=>row.style.color='');
+    }
+    list.appendChild(row);
   }
-  if(all.length>_activityLimit)html+=`<button class="ghost" style="margin-top:10px" onclick="showMoreActivity()">Show more (${all.length-_activityLimit} older)</button>`;
-  list.innerHTML=html;
+  if(all.length>_activityLimit){
+    const more=document.createElement('button');more.className='ghost';more.style.marginTop='10px';
+    more.textContent=`Show more (${all.length-_activityLimit} older)`;
+    more.onclick=showMoreActivity;
+    list.appendChild(more);
+  }
 }
 function dlBlob(blob,fname){const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=fname;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),4000);}
 
@@ -2073,13 +2314,23 @@ async function exportAllData(){
       coachLog:await idbGetAll('coachlog'),
       activity:await idbGetAll('activity'),
       patternsCache:loadPatternsCache(),
+      genreCache:loadGenreCache(),
     };
     const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
     dlBlob(blob,`offbook-backup-${new Date().toISOString().slice(0,10)}.json`);
     status.textContent=`✓ Exported ${payload.scripts.length} script${payload.scripts.length===1?'':'s'}, ${payload.coachLog.length} coaching note${payload.coachLog.length===1?'':'s'}, ${payload.activity.length} activity entries.`;
+    localStorage.setItem('offbook_last_export',String(Date.now()));
+    renderLastBackupLabel();
   }catch(e){
     status.textContent='⚠ Export failed: '+e.message;
   }
+}
+function renderLastBackupLabel(){
+  const el=document.getElementById('last-backup');if(!el)return;
+  const at=Number(localStorage.getItem('offbook_last_export')||0);
+  if(!at){el.textContent='Never backed up — consider exporting.';return;}
+  const days=Math.floor((Date.now()-at)/86400000);
+  el.textContent=`Last backed up: ${days<1?'today':days===1?'yesterday':days+' days ago'}.`;
 }
 async function importAllData(file){
   const status=document.getElementById('backup-status');
@@ -2092,7 +2343,7 @@ async function importAllData(file){
     // Scripts: add any whose name doesn't already exist — never overwrite
     // current data on import, the safe default. No cap re-applied here —
     // writeSaved() is a raw writer everywhere else in the app too; the
-    // 30-script cap lives specifically in saveCurrent(), not here.
+    // 500-script cap lives specifically in saveCurrent(), not here.
     const existing=loadSaved();
     const existingNames=new Set(existing.map(s=>s.name));
     let added=0,skipped=0;
@@ -2185,7 +2436,7 @@ async function makeAudio(){
 
   // Cache hit: no network, no pill — just re-download instantly.
   try{
-    const cached=await idbGet(key);
+    const cached=await idbGet('audio',key);
     if(cached){dlBlob(cached,fname);st.textContent='✓ Reused saved audio — no charge';return;}
   }catch(e){}
 
@@ -2219,7 +2470,7 @@ async function makeAudio(){
     const out=new Float32Array(total);let off=0;
     for(const d of decoded){if(d.data){out.set(d.data,off);off+=d.data.length;}else off+=d.len;}
     const wav=encodeWAV(out,sr);
-    await idbSet(key,wav);
+    await idbSet('audio',key,wav);
     dlBlob(wav,fname);
     finishJobPill('✓ Audio ready — saved to Downloads');
     notifyDone('Offbook — audio ready','Saved to your Downloads. Same settings won\'t charge again.');
