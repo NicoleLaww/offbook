@@ -24,6 +24,8 @@
   .sub{color:var(--muted);font-size:13px;margin-bottom:24px;line-height:1.7;}
   input[type=password]{width:100%;background:var(--s2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Mono',monospace;font-size:14px;padding:14px 16px;outline:none;margin-bottom:20px;}
   input[type=password]:focus{border-color:var(--accent);}
+  select{color-scheme:dark;background:var(--s2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Mono',monospace;font-size:14px;padding:10px 12px;outline:none;}
+  select:focus{border-color:var(--accent);}
   .big{background:var(--accent);color:#000;border:none;border-radius:10px;font-family:'Syne',sans-serif;font-weight:800;font-size:14px;letter-spacing:.1em;padding:14px 36px;cursor:pointer;transition:opacity .2s;text-transform:uppercase;}
   .big:hover{opacity:.85;}
   .big:disabled{opacity:.3;cursor:not-allowed;}
@@ -287,8 +289,9 @@
   <div class="err" id="uperr"></div>
   <div id="saved"></div>
   <div id="coachlog-wrap" style="margin-top:28px;padding-top:20px;border-top:1px solid var(--border)">
-    <div class="saved-h">Coaching log <span class="kfree">notes from real feedback — not tied to one script</span></div>
+    <div class="saved-h">Coaching log <span class="kfree">notes from real feedback — tag a scene, or leave general</span></div>
     <textarea id="log-ta" class="log-ta" rows="2" placeholder="e.g. coach said I missed the hook at top of act 2, chose to de-escalate when it needed to fight… (⌘/Ctrl+Enter to save)" onkeydown="if((event.metaKey||event.ctrlKey)&&event.key==='Enter'){event.preventDefault();addLogEntry();}"></textarea>
+    <select id="log-script" style="margin-bottom:10px"><option value="">General note (not tied to a script)</option></select>
     <button class="ghost" onclick="addLogEntry()">+ Add note</button>
     <div id="log-list"></div>
     <div id="patterns-wrap" style="margin-top:16px"></div>
@@ -611,9 +614,14 @@ function writeSaved(arr){
 function saveCurrent(){
   if(!curName||!SL.length)return null;
   const arr=loadSaved();
-  const work=(arr.find(s=>s.name===curName)||{}).work||{};
+  // Spread the existing record first so any field beyond work/lines (genre,
+  // and whatever gets added next — e.g. a per-script route) survives a save
+  // automatically. Previously this rebuilt a bare {name,work,lines} object on
+  // EVERY save — including the one buildScript() fires on a plain Load — so a
+  // genre tag vanished the instant you opened the very script you tagged.
+  const existing=arr.find(s=>s.name===curName)||{};
   const rest=arr.filter(s=>s.name!==curName);
-  rest.unshift({name:curName,work,lines:SL.map(l=>({char:l.char,direction:l.direction,text:l.text,before:l.before||'',after:l.after||'',isMine:!!l.isMine,cut:!!l.cut,sceneStart:!!l.sceneStart,sceneHeading:l.sceneHeading||'',sceneLabel:l.sceneLabel||'',carried:!!l.carried,carriedFrom:l.carriedFrom||'',carriedFuzzy:!!l.carriedFuzzy}))});
+  rest.unshift({...existing,name:curName,work:existing.work||{},lines:SL.map(l=>({char:l.char,direction:l.direction,text:l.text,before:l.before||'',after:l.after||'',isMine:!!l.isMine,cut:!!l.cut,sceneStart:!!l.sceneStart,sceneHeading:l.sceneHeading||'',sceneLabel:l.sceneLabel||'',carried:!!l.carried,carriedFrom:l.carriedFrom||'',carriedFuzzy:!!l.carriedFuzzy}))});
   // 500, not 30 — now backed by IndexedDB, not localStorage's ~5-10MB
   // ceiling, so this is a sanity ceiling against pathological growth, not
   // the real constraint it used to be. No realistic multi-year acting
@@ -739,21 +747,40 @@ async function loadCoachLog(){await migrateCoachLogIfNeeded();return (await idbG
 async function addLogEntry(){
   const ta=document.getElementById('log-ta');
   const text=ta.value.trim();if(!text)return;
+  const scriptSel=document.getElementById('log-script');
+  const scriptName=scriptSel?scriptSel.value:'';
   await migrateCoachLogIfNeeded();
   // Date.now() alone can collide — two adds in the same millisecond (easy to
   // trigger programmatically, confirmed while testing) would get the SAME id,
   // and delLogEntry(id) would then delete every entry matching it, not just one.
-  await idbAdd('coachlog',{id:Date.now()+'-'+Math.random().toString(36).slice(2),text,at:Date.now()});
+  await idbAdd('coachlog',{id:Date.now()+'-'+Math.random().toString(36).slice(2),text,at:Date.now(),scriptName:scriptName||null});
   ta.value='';
+  if(scriptSel)scriptSel.value='';
   await renderCoachLog();
 }
 async function delLogEntry(id){if(!confirm('Delete this note?'))return;await idbDelete('coachlog',id);await renderCoachLog();}
+// Mirrors renderRevisionPicker()'s pattern: regenerate options from the
+// current saved scripts, keep the in-progress selection if it's still valid.
+function renderLogScriptPicker(){
+  const sel=document.getElementById('log-script');if(!sel)return;
+  const arr=loadSaved();
+  const cur=sel.value;
+  sel.innerHTML='<option value="">General note (not tied to a script)</option>'
+    +arr.map(s=>`<option value="${esc(s.name)}">${esc(s.name)}</option>`).join('');
+  if(arr.some(s=>s.name===cur))sel.value=cur;
+}
 async function renderCoachLog(){
   const list=document.getElementById('log-list');if(!list)return;
+  renderLogScriptPicker();
+  const savedNames=new Set(loadSaved().map(s=>s.name));
   list.innerHTML='';
   (await loadCoachLog()).forEach(e=>{
     const row=document.createElement('div');row.className='saved-item';
-    row.innerHTML=`<div class="nm" style="white-space:normal">${esc(e.text)}</div>`;
+    const clickable=e.scriptName&&savedNames.has(e.scriptName);
+    row.innerHTML=`<div class="nm" style="white-space:normal">${esc(e.text)}`
+      +(e.scriptName?`<br><span class="kfree" style="${clickable?'cursor:pointer':''}">${clickable?'↩ ':''}${esc(e.scriptName)}${clickable?'':' (no longer saved)'}</span>`:'')
+      +`</div>`;
+    if(clickable)row.querySelector('.kfree').addEventListener('click',e2=>{e2.stopPropagation();loadScript(e.scriptName);});
     const del=document.createElement('button');del.className='del';del.textContent='✕';
     del.onclick=()=>delLogEntry(e.id); // closure, not a string-built onclick= — e.id is a string id now, not a number
     row.appendChild(del);list.appendChild(row);
