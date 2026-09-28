@@ -328,12 +328,15 @@
     </div>
   </div>
   <div class="tip"><strong>Click any line</strong> to mark it as yours — purple = hidden during rehearsal. Click again to unmark.</div>
+  <div id="role-select-wrap" style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+    <select id="role-select" onchange="selectRole(this.value)" style="flex:1;min-width:160px"><option value="">I'm playing…</option></select>
+    <span class="kfree">free — marks every line for that character</span>
+  </div>
   <div id="scene-tabs" class="scene-tabs" style="display:none"></div>
   <div id="slines"></div>
   <div class="bot">
     <div class="bot-info"><strong id="mcount">0</strong> lines selected</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
-      <button class="ghost" onclick="selectAllMine()" title="Mark every line as yours — for a monologue or self-tape where you're reading everything">Select all</button>
       <button class="ghost" onclick="clearMine()">Clear</button>
       <button class="ghost" id="workbtn" onclick="openWork()">🎬 Scene Work</button>
       <button class="ghost" id="audiobtn" onclick="openAudio()" disabled>🎧 Make Audio</button>
@@ -648,7 +651,24 @@ function loadScript(name){
   curName=name;
   document.getElementById('fname').textContent=name;
   updateScriptRouteBadge();
+  populateRoleSelect();
   buildScript();show('script-screen');
+}
+// Free — pure local matching on the already-parsed character name, no AI
+// call. "I'm playing X" is a full replace (marks every one of X's lines,
+// unmarks everyone else's) rather than adding on top, since picking a role
+// is a fresh starting point, not a tweak — clicking individual lines
+// afterward still works for the odd exception (a doubled role, a line you
+// don't want to read).
+function populateRoleSelect(){
+  const sel=document.getElementById('role-select');if(!sel)return;
+  const chars=[...new Set(SL.filter(l=>!l.cut).map(l=>l.char))];
+  sel.innerHTML=`<option value="">I'm playing…</option>`+chars.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('');
+}
+function selectRole(char){
+  if(!char)return;
+  SL.forEach(l=>{if(!l.cut)l.isMine=(l.char===char);});
+  buildScript();
 }
 // Scene numbers are always derived, never stored directly — the actor can
 // manually flip sceneStart on any line (see toggleSceneStart) and this just
@@ -1735,9 +1755,6 @@ function toggleCut(id){
   saveCurrent();
 }
 function clearMine(){SL.forEach(l=>l.isMine=false);document.querySelectorAll('.sl.mine').forEach(el=>el.classList.remove('mine'));updCount();}
-// Skips cut lines, same as a manual click would (buildScript() doesn't even
-// attach a click handler to a cut line — see the .sl click listener).
-function selectAllMine(){SL.forEach(l=>{if(!l.cut)l.isMine=true;});document.querySelectorAll('.sl:not(.cut)').forEach(el=>el.classList.add('mine'));updCount();}
 function updCount(){
   const n=SL.filter(l=>l.isMine).length;
   document.getElementById('mcount').textContent=n;
