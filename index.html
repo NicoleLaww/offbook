@@ -2208,10 +2208,32 @@ async function sendWork(){
     renderThread(thread);
     loadThread();
     st.textContent='';
-    if(isFreshBreakdown)logActivity('breakdown', `${curName||'demo'} — ${wkSceneLabel(scene)} (${char})`, curName||null);
+    if(isFreshBreakdown){
+      logActivity('breakdown', `${curName||'demo'} — ${wkSceneLabel(scene)} (${char})`, curName||null);
+      maybeAutoGenre(); // fire-and-forget — best-effort, never blocks or overwrites a manual tag
+    }
   }catch(e){st.textContent='⚠ '+(/fetch/i.test(e.message)?'Couldn\'t reach the model — check your key has credits':e.message);}
   _wkJobRunning=false;
   setWkButtonsBusy(false);
+}
+// Piggybacks on a breakdown you're already running rather than firing its
+// own separate paid pass — tiny extra output (a couple words) on the same
+// call. Only ever fills an EMPTY genre field, first breakdown of ANY scene
+// (using the whole script's text, not just that one scene) is enough to
+// guess from — never re-guesses or overwrites once something's there,
+// whether you typed it or a prior guess landed.
+const GENRE_GUESS_PROMPT=`Read this scene from a script and name its genre in 1-3 words — e.g. "psychological thriller," "workplace comedy," "procedural drama," "coming-of-age drama." Return ONLY the genre phrase, nothing else — no punctuation, no explanation.`;
+async function maybeAutoGenre(){
+  if(!curName)return;
+  const existing=loadSaved().find(x=>x.name===curName);
+  if(!existing||(existing.genre||'').trim())return;
+  try{
+    const raw=await craftLLM(GENRE_GUESS_PROMPT,[{role:'user',content:sceneText('all')}],true,getScriptRoute(curName));
+    const guess=(raw||'').trim().replace(/^["'.]+|["'.]+$/g,'');
+    if(!guess||guess.length>40)return; // sanity guard against a malformed/rambling reply
+    const arr=loadSaved();const target=arr.find(x=>x.name===curName);
+    if(target&&!(target.genre||'').trim()){target.genre=guess;writeSaved(arr);}
+  }catch(e){} // best-effort — a failed guess just leaves genre empty, same as today
 }
 function phase2(){
   if(getWork(getWkScene(),document.getElementById('wk-char').value)){
