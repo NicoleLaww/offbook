@@ -1,6 +1,6 @@
 // OFFBOOK service worker — caches the app shell for offline launch.
 // Network-first so updates land immediately; cache is the offline fallback.
-const CACHE = 'offbook-v49';
+const CACHE = 'offbook-v50';
 const ASSETS = [
   './',
   './index.html',
@@ -30,8 +30,16 @@ self.addEventListener('fetch', e => {
   const url = new URL(req.url);
   // Never cache API calls (OpenAI dialogue parsing needs the network anyway).
   if (url.hostname.includes('openai.com')) return;
+  // "Network-first" only actually reaches the network if the fetch() call
+  // itself skips the browser's own HTTP cache — it doesn't by default, and
+  // GitHub Pages sends index.html with a 10-minute max-age, so a plain
+  // fetch(req) here could silently hand back a stale shell without ever
+  // making a real request. The shell (the one file that changes on every
+  // deploy) gets cache:'no-store' to force a real check every time; other
+  // assets (icons, manifest — effectively static) keep normal caching.
+  const isShell = url.origin === location.origin && (url.pathname === '/' || url.pathname.endsWith('/') || url.pathname.endsWith('/index.html'));
   e.respondWith(
-    fetch(req)
+    fetch(req, isShell ? {cache:'no-store'} : {})
       .then(res => {
         if (url.origin === location.origin) {
           const copy = res.clone();
