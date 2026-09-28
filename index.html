@@ -275,12 +275,13 @@
   <div class="err" id="uperr"></div>
   <div class="scene-tabs" id="main-tabs" style="margin-top:28px;padding-top:20px;border-top:1px solid var(--border);margin-bottom:16px">
     <button class="scene-tab active" data-tab="scripts" onclick="setMainTab('scripts')">📄 Scripts</button>
-    <button class="scene-tab" data-tab="analysis" onclick="setMainTab('analysis')">🧭 Analysis</button>
+    <button class="scene-tab" data-tab="log" onclick="setMainTab('log')">🗒️ Coaching Log</button>
+    <button class="scene-tab" data-tab="backup" onclick="setMainTab('backup')">💾 Backup</button>
   </div>
   <div id="tab-scripts">
     <div id="saved"></div>
   </div>
-  <div id="tab-analysis" style="display:none">
+  <div id="tab-log" style="display:none">
   <div id="coachlog-wrap">
     <div class="saved-h">Coaching log</div>
     <textarea id="log-ta" class="log-ta" rows="2" placeholder="e.g. coach said I missed the hook at top of act 2, chose to de-escalate when it needed to fight… (Enter to save, Shift+Enter for a new line)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();addLogEntry();}"></textarea>
@@ -300,21 +301,19 @@
     <div id="patterns-wrap" style="margin-top:16px"></div>
     <div id="genre-wrap" style="margin-top:16px;padding-top:16px;border-top:1px dashed var(--border)"></div>
   </div>
-  <div id="activity-wrap" style="margin-top:28px;padding-top:20px;border-top:1px solid var(--border)">
-    <div class="saved-h">Activity</div>
-    <div id="activity-list" style="font-size:12px;color:var(--muted)">Loading…</div>
   </div>
-  <details style="margin-top:28px;padding-top:20px;border-top:1px solid var(--border)">
-    <summary class="saved-h" style="cursor:pointer;list-style:none">Backup</summary>
+  <div id="tab-backup" style="display:none">
+  <div>
+    <div class="saved-h">Backup</div>
     <div id="last-backup" style="font-size:11px;color:var(--muted);margin-top:10px"></div>
-    <div class="kfree" style="margin-top:10px">Includes scripts, coaching log &amp; activity — never your API keys</div>
+    <div class="kfree" style="margin-top:10px">Includes scripts &amp; coaching log — never your API keys</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
       <button class="ghost" onclick="exportAllData()">⬇ Export all data</button>
       <button class="ghost" onclick="document.getElementById('import-file').click()">⬆ Import</button>
       <input type="file" id="import-file" accept="application/json,.json" onchange="importAllData(this.files[0])" style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;clip:rect(0,0,0,0);">
     </div>
     <div id="backup-status" style="font-size:12px;color:var(--muted);margin-top:8px"></div>
-  </details>
+  </div>
   </div>
 </div>
 
@@ -615,7 +614,7 @@ initScriptsCache(); // fire immediately at script load, not gated on any user ac
 function loadSaved(){return _scriptsCache||[];}
 function writeSaved(arr){
   _scriptsCache=arr; // synchronous — every caller's next loadSaved() sees this instantly, no race
-  idbSet('scripts','all',arr); // fire-and-forget background persist, same pattern as logActivity()
+  idbSet('scripts','all',arr); // fire-and-forget background persist
 }
 // Returns the name of the script evicted to stay under the 500-script cap
 // (oldest survives longest since rest.unshift puts the current one first),
@@ -749,12 +748,12 @@ function setMainTab(tab){
   _mainTab=tab;
   document.querySelectorAll('#main-tabs .scene-tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
   document.getElementById('tab-scripts').style.display=tab==='scripts'?'block':'none';
-  document.getElementById('tab-analysis').style.display=tab==='analysis'?'block':'none';
+  document.getElementById('tab-log').style.display=tab==='log'?'block':'none';
+  document.getElementById('tab-backup').style.display=tab==='backup'?'block':'none';
 }
 function renderSaved(){
   renderRevisionPicker();
   renderCoachLog();
-  renderActivityLog(); // async, not awaited — list shows "Loading…" briefly then fills in, doesn't block this render
   renderLastBackupLabel();
   renderGenreGate(); // called here too (not just after the forEach below) so the empty-state gate still shows with zero saved scripts
   renderGemOverloadNote();
@@ -887,8 +886,8 @@ function setLogView(v){
   document.querySelectorAll('#log-view-tabs .scene-tab').forEach(b=>b.classList.toggle('active',b.dataset.view===v));
   renderCoachLog();
 }
-// Session-scoped, same reasoning as _activityLimit — grows via "Show more"
-// instead of ever rendering years of notes at once.
+// Session-scoped — grows via "Show more" instead of ever rendering years
+// of notes at once.
 let _logLimit=20;
 function showMoreLog(){_logLimit+=20;renderCoachLog();}
 async function renderCoachLog(){
@@ -968,7 +967,6 @@ async function suggestLogTags(){
       if(resEl)resEl.innerHTML='<span style="color:var(--muted)">No clean recurring themes yet.</span>';
     } else {
       renderTagSuggestions(suggestions,untagged);
-      logActivity('patterns','Tag suggestions run');
     }
   }catch(e){
     if(resEl)resEl.innerHTML='<span style="color:var(--accent)">⚠ '+esc(/fetch/i.test(e.message)?'Couldn\'t reach the model — check your key has credits':e.message)+'</span>';
@@ -1139,7 +1137,6 @@ async function runGenreAnalysis(){
     const reply=await craftLLM(GENRE_PROMPT,[{role:'user',content:prompt}],true,route);
     localStorage.setItem('offbook_genre',JSON.stringify({reply,at:Date.now()}));
     if(resEl)resEl.innerHTML=mdToHtml(reply);
-    logActivity('genre',"Genre comparison run");
   }catch(e){
     if(resEl)resEl.innerHTML='<span style="color:var(--accent)">⚠ '+esc(/fetch/i.test(e.message)?'Couldn\'t reach the model — check your key has credits':e.message)+'</span>';
   }
@@ -1389,7 +1386,6 @@ async function doPDF(file){
       ? ` — carried over ${carriedCount?`${carriedCount} unchanged scene${carriedCount>1?'s':''}`:''}${carriedCount&&storyCarried?' + ':''}${storyCarried?'Story Analysis':''}${newSceneCount?` (${newSceneCount} scene${newSceneCount>1?'s':''} new/changed — re-run Story Analysis for an accurate read)`:''}`
       : '';
     document.getElementById('upst').textContent=`✓ ${SL.length} lines found`+revNote+failNote+evictNote;
-    logActivity(revNote?'revision':'upload', `${file.name} — ${SL.length} lines`+(revNote?revNote:''), file.name);
     setTimeout(()=>{buildScript();show('script-screen');},300);
 
   }catch(e){
@@ -2121,7 +2117,6 @@ async function gutCheck(){
     thread.checklist.gutCheck=reply;
     thread.checklist.gutCheckAt=Date.now();
     setWork(scene,char,thread);
-    logActivity('gutcheck', `${curName||'demo'} — ${wkSceneLabel(scene)} (${char})`, curName||null);
   }catch(e){
     wkRenderError(resEl,e,gutCheck);
   }
@@ -2155,7 +2150,6 @@ async function runPatterns(){
     const reply=await craftLLM(PATTERNS_PROMPT,[{role:'user',content:prompt}],true,route);
     await savePatternsCache(reply);
     await renderPatternsGate();
-    logActivity('patterns', "Coach's Notes run");
   }catch(e){
     if(resEl)resEl.innerHTML='<span style="color:var(--accent)">⚠ '+esc(/fetch/i.test(e.message)?'Couldn\'t reach the model — check your key has credits':e.message)+'</span>';
   }
@@ -2303,10 +2297,7 @@ async function sendWork(){
     renderThread(thread);
     loadThread();
     st.textContent='';
-    if(isFreshBreakdown){
-      logActivity('breakdown', `${curName||'demo'} — ${wkSceneLabel(scene)} (${char})`, curName||null);
-      maybeAutoGenre(); // fire-and-forget — best-effort, never blocks or overwrites a manual tag
-    }
+    if(isFreshBreakdown)maybeAutoGenre(); // fire-and-forget — best-effort, never blocks or overwrites a manual tag
   }catch(e){wkRenderError(st,e,sendWork);}
   _wkJobRunning=false;
   setWkButtonsBusy(false);
@@ -2587,52 +2578,6 @@ async function idbSet(store,k,v){try{const db=await idbOpen();await new Promise(
 async function idbGetAll(store){try{const db=await idbOpen();const v=await new Promise(res=>{const t=db.transaction(store).objectStore(store).getAll();t.onsuccess=()=>res(t.result||[]);t.onerror=()=>res([]);});db.close();return v;}catch(e){return [];}}
 async function idbAdd(store,v){try{const db=await idbOpen();await new Promise(res=>{const t=db.transaction(store,'readwrite').objectStore(store).put(v);t.onsuccess=()=>res();t.onerror=()=>res();});db.close();}catch(e){}}
 async function idbDelete(store,id){try{const db=await idbOpen();await new Promise(res=>{const t=db.transaction(store,'readwrite').objectStore(store).delete(id);t.onsuccess=()=>res();t.onerror=()=>res();});db.close();}catch(e){}}
-// Automatic, permanent record of what happened — distinct from the manual
-// Coaching Log (her own typed notes). Fire-and-forget: never awaited at the
-// call site, and idbAdd already swallows its own errors, so a logging
-// failure can never block or break the feature that triggered it.
-function logActivity(type,detail,scriptName){idbAdd('activity',{id:Date.now()+'-'+Math.random().toString(36).slice(2),at:Date.now(),type,detail,scriptName:scriptName||null});}
-const ACTIVITY_ICONS={upload:'📄',revision:'🔁',breakdown:'🎬',gutcheck:'🧠',patterns:'🧭',genre:'🎭'};
-// Session-scoped, not persisted — resets to 50 on reload, grows via "Show
-// more" so years of history stay reachable instead of hard-capped forever.
-let _activityLimit=50;
-function showMoreActivity(){_activityLimit+=100;renderActivityLog();}
-async function renderActivityLog(){
-  const list=document.getElementById('activity-list');if(!list)return;
-  const all=(await idbGetAll('activity')).sort((a,b)=>b.at-a.at);
-  if(!all.length){list.innerHTML='Nothing logged yet — upload a script or run a breakdown.';return;}
-  const entries=all.slice(0,_activityLimit);
-  // Build via DOM, not string-built onclick= — a script name could contain a
-  // quote and break out of an inline attribute, same trap the scene-rename
-  // input hit earlier; a closure sidesteps it entirely.
-  const savedNames=new Set(loadSaved().map(s=>s.name));
-  list.innerHTML='';
-  let lastDate='';
-  for(const e of entries){
-    const dateStr=new Date(e.at).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'});
-    if(dateStr!==lastDate){
-      const h=document.createElement('div');h.style.cssText='margin-top:10px;font-weight:600;color:var(--text)';h.textContent=dateStr;
-      list.appendChild(h);lastDate=dateStr;
-    }
-    const row=document.createElement('div');
-    row.style.cssText='padding:3px 0';
-    row.textContent=`${ACTIVITY_ICONS[e.type]||'•'} ${e.detail}`;
-    const clickable=e.scriptName&&savedNames.has(e.scriptName);
-    if(clickable){
-      row.style.cursor='pointer';row.title=`Open ${e.scriptName}`;
-      row.addEventListener('click',()=>loadScript(e.scriptName));
-      row.addEventListener('mouseenter',()=>row.style.color='var(--accent)');
-      row.addEventListener('mouseleave',()=>row.style.color='');
-    }
-    list.appendChild(row);
-  }
-  if(all.length>_activityLimit){
-    const more=document.createElement('button');more.className='ghost';more.style.marginTop='10px';
-    more.textContent=`Show more (${all.length-_activityLimit} older)`;
-    more.onclick=showMoreActivity;
-    list.appendChild(more);
-  }
-}
 function dlBlob(blob,fname){const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=fname;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),4000);}
 
 // BACKUP — export/import reduces data-loss risk (device switch, browser
