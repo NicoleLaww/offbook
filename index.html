@@ -695,8 +695,15 @@ function renderSaved(){
   const arr=loadSaved();box.innerHTML='';
   if(!arr.length)return;
   const h=document.createElement('div');h.className='saved-h';h.textContent='Saved scripts — load without re-uploading';
+  // Flex, not float: an uncleared float:right here would overlap into the
+  // FIRST saved-item card below it whenever this header wraps (any real
+  // filename + "Using: OpenAI — paid" don't fit one line at this column
+  // width) — confirmed live, it crushed that card to under half width and
+  // truncated its name to "P…". Flex-wrap keeps the badge inside this
+  // header's own box on its own line instead of bleeding into the next one.
+  h.style.cssText='display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:4px 10px;';
   const badge=document.createElement('span');badge.id='saved-route-badge';
-  badge.style.cssText='float:right;font-size:11px;color:var(--accent);font-weight:600;';
+  badge.style.cssText='font-size:11px;color:var(--accent);font-weight:600;';
   badge.textContent='Using: '+routeLabel();
   h.appendChild(badge);
   box.appendChild(h);
