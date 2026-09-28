@@ -215,14 +215,6 @@
   .am-gap{font-size:12px;color:var(--text);margin:16px 0 4px;}
   .am-gap input{width:100%;margin-top:8px;}
   .am-status{font-size:12px;color:var(--muted);text-align:center;margin-top:12px;min-height:18px;line-height:1.5;}
-  #demobar{position:fixed;top:0;left:0;right:0;z-index:300;background:var(--accent);color:#000;font-size:12px;font-weight:500;padding:10px 16px;display:none;align-items:center;justify-content:center;gap:12px;text-align:center;flex-wrap:wrap;}
-  #demobar button{background:#000;color:var(--accent);border:none;border-radius:6px;font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:.08em;padding:7px 13px;cursor:pointer;text-transform:uppercase;}
-  body.demo{padding-top:80px;}
-  body.demo #demobar{display:flex;}
-  #step-key details{margin-top:24px;border-top:1px solid var(--border);padding-top:18px;}
-  #step-key summary{cursor:pointer;font-size:13px;color:var(--accent);list-style:none;}
-  #step-key summary::-webkit-details-marker{display:none;}
-  .demo-cta{font-size:12px;color:var(--muted);margin-bottom:20px;}
   .route-q{font-size:12px;color:var(--muted);margin-bottom:8px;letter-spacing:.04em;text-transform:uppercase;}
   .route-row{display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;}
   .route-opt{flex:1;min-width:150px;border:1px solid var(--border);border-radius:10px;padding:12px 14px;cursor:pointer;transition:all .15s;}
@@ -232,32 +224,25 @@
   .ksub{font-size:12px;color:var(--muted);margin:16px 0 18px;line-height:1.6;}
   .klab{display:block;font-size:12px;color:var(--text);margin-bottom:6px;}
   .kfree{color:var(--accent);font-size:10px;text-transform:uppercase;letter-spacing:.05em;margin-left:4px;}
-  #step-key details input{margin-bottom:14px;}
+  #step-key input{margin-bottom:14px;}
 </style>
 </head>
 <body>
-
-<div id="demobar">🎬 You're in the demo — <span>add your OpenAI key to rehearse your own scripts</span> <button onclick="exitDemo()">Add key →</button></div>
 
 <!-- LANDING / KEY -->
 <div id="step-key" class="screen">
   <div class="logo" style="margin-bottom:24px">OFF<span>BOOK</span></div>
   <h2>Learn your lines, off book.</h2>
   <div class="sub">Upload an audition side, black out your lines, and rehearse out loud. OFFBOOK listens and shows you exactly what you got wrong.</div>
-  <button class="big" onclick="startDemo()" style="margin-bottom:14px">▶ &nbsp;TRY THE DEMO</button>
-  <div class="demo-cta">No sign-up, no key needed — see how it works in 20 seconds.</div>
-  <details>
-    <summary>Use your own keys →</summary>
-    <div class="ksub">Paste any you have — you need at least one "reads scripts" key. The free ones cover everything.</div>
-    <label class="klab">Gemini <span class="kfree">FREE — reads scripts · aistudio.google.com</span></label>
-    <input id="gem" type="password" placeholder="AIza..." />
-    <label class="klab">Groq <span class="kfree">FREE — transcribes your voice · console.groq.com</span></label>
-    <input id="groq" type="password" placeholder="gsk_..." />
-    <label class="klab">OpenAI <span class="kfree">paid — confidential scripts + nicer voice</span></label>
-    <input id="oai" type="password" placeholder="sk-..." />
-    <button class="big" onclick="saveKeys()">SAVE &amp; CONTINUE →</button>
-    <div class="err" id="kerr"></div>
-  </details>
+  <div class="ksub">Paste any you have — you need at least one "reads scripts" key. The free ones cover everything.</div>
+  <label class="klab">Gemini <span class="kfree">FREE — reads scripts · aistudio.google.com</span></label>
+  <input id="gem" type="password" placeholder="AIza..." />
+  <label class="klab">Groq <span class="kfree">FREE — transcribes your voice · console.groq.com</span></label>
+  <input id="groq" type="password" placeholder="gsk_..." />
+  <label class="klab">OpenAI <span class="kfree">paid — confidential scripts + nicer voice</span></label>
+  <input id="oai" type="password" placeholder="sk-..." />
+  <button class="big" onclick="saveKeys()">SAVE &amp; CONTINUE →</button>
+  <div class="err" id="kerr"></div>
 </div>
 
 <!-- UPLOAD -->
@@ -290,7 +275,7 @@
   <div id="saved"></div>
   <div id="coachlog-wrap" style="margin-top:28px;padding-top:20px;border-top:1px solid var(--border)">
     <div class="saved-h">Coaching log <span class="kfree">notes from real feedback — tag a scene, or leave general</span></div>
-    <textarea id="log-ta" class="log-ta" rows="2" placeholder="e.g. coach said I missed the hook at top of act 2, chose to de-escalate when it needed to fight… (⌘/Ctrl+Enter to save)" onkeydown="if((event.metaKey||event.ctrlKey)&&event.key==='Enter'){event.preventDefault();addLogEntry();}"></textarea>
+    <textarea id="log-ta" class="log-ta" rows="2" placeholder="e.g. coach said I missed the hook at top of act 2, chose to de-escalate when it needed to fight… (Enter to save, Shift+Enter for a new line)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();addLogEntry();}"></textarea>
     <select id="log-script" style="margin-bottom:10px"><option value="">General note (not tied to a script)</option></select>
     <button class="ghost" onclick="addLogEntry()">+ Add note</button>
     <div id="log-list"></div>
@@ -329,6 +314,7 @@
   <div class="bot">
     <div class="bot-info"><strong id="mcount">0</strong> lines selected</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="ghost" onclick="selectAllMine()" title="Mark every line as yours — for a monologue or self-tape where you're reading everything">Select all</button>
       <button class="ghost" onclick="clearMine()">Clear</button>
       <button class="ghost" id="workbtn" onclick="openWork()">🎬 Scene Work</button>
       <button class="ghost" id="audiobtn" onclick="openAudio()" disabled>🎧 Make Audio</button>
@@ -977,43 +963,6 @@ async function runGenreAnalysis(){
   if(btn)btn.disabled=false;
 }
 
-// DEMO — a keyless taste of the product. The scoring/diff is all client-side,
-// so we can show the whole "record → here's what you got wrong" flow with a
-// scripted take and zero API calls. Only real (own-script) use needs a key.
-let demoMode=false;
-const DEMO_LINES=[
-  {char:'JESS',direction:'',text:"You said you'd be here an hour ago.",demo:"you said you would be here like an hour ago"},
-  {char:'SAM',direction:'',text:"I know. I'm sorry. The train—"},
-  {char:'JESS',direction:'',text:"Don't. Don't do the train thing.",demo:"dont do the train thing"},
-  {char:'SAM',direction:'',text:"It's the truth."},
-  {char:'JESS',direction:'',text:"It's always the truth with you. That's the problem.",demo:"its always the truth with you thats the whole problem"},
-  {char:'SAM',direction:'',text:"What do you want me to say?"},
-  {char:'JESS',direction:'',text:"Nothing. That's the worst part. I don't want you to say anything anymore.",demo:"nothing thats the worst part i dont want you to say anything"},
-  {char:'SAM',direction:'',text:"Jess."},
-  {char:'JESS',direction:'',text:"Just go home, Sam.",demo:"just go home sam"}
-];
-function startDemo(){
-  demoMode=true;
-  document.body.classList.add('demo');
-  SL=DEMO_LINES.map((l,i)=>({...l,id:i,scene:1,isMine:l.char==='JESS'}));
-  curName='';
-  document.getElementById('fname').textContent='Demo scene';
-  buildScript();show('script-screen');
-}
-function exitDemo(){
-  demoMode=false;
-  document.body.classList.remove('demo');
-  show('step-key');
-  const d=document.querySelector('#step-key details');if(d)d.open=true;
-  const inp=document.getElementById('gem');if(inp)inp.focus();
-  window.scrollTo(0,0);
-}
-// In demo, a mic tap plays a scripted take through the real scorer (no API).
-function demoAttempt(){
-  const line=RL[cur];if(!line)return;
-  evalLine(line.demo||line.text);
-  const sb=document.getElementById('speakbtn');if(sb)sb.style.display='none';
-}
 
 // UPLOAD
 const dz=document.getElementById('dz');
@@ -1625,6 +1574,9 @@ function toggleCut(id){
   saveCurrent();
 }
 function clearMine(){SL.forEach(l=>l.isMine=false);document.querySelectorAll('.sl.mine').forEach(el=>el.classList.remove('mine'));updCount();}
+// Skips cut lines, same as a manual click would (buildScript() doesn't even
+// attach a click handler to a cut line — see the .sl click listener).
+function selectAllMine(){SL.forEach(l=>{if(!l.cut)l.isMine=true;});document.querySelectorAll('.sl:not(.cut)').forEach(el=>el.classList.add('mine'));updCount();}
 function updCount(){
   const n=SL.filter(l=>l.isMine).length;
   document.getElementById('mcount').textContent=n;
@@ -1763,7 +1715,13 @@ function openWork(){
   if(multi){
     ssel.innerHTML='<option value="all">Whole script (all scenes)</option>'
       +scenes.map(s=>`<option value="${s}">Scene ${s}${sceneNameFor(s)?' — '+esc(sceneNameFor(s)):''}</option>`).join('');
-    ssel.value='all'; // holistic first, scene-by-scene is one click away
+    // Used to always reset to 'all' on every open — so a breakdown saved
+    // under a specific scene looked like it had vanished (empty box) until
+    // you noticed the dropdown had silently reset and flipped it back
+    // yourself. Default to whichever scene you're actually looking at in
+    // the script view instead (same pattern openAudio() already uses),
+    // falling back to 'all' only when no scene is filtered.
+    ssel.value = (_sceneFilter!=='all' && scenes.includes(_sceneFilter)) ? _sceneFilter : 'all';
   }
   populateWkChars(getWkScene());
   document.getElementById('wk-brk').value='';
@@ -2674,7 +2632,6 @@ function toggleRec(){
 
 async function startRec(e){
   if(e&&e.preventDefault)e.preventDefault();
-  if(demoMode){demoAttempt();return;}
   if(passed||recording)return;
   document.getElementById('cmp').classList.remove('show');
   passed=false;
@@ -2839,7 +2796,6 @@ async function speakText(text){
 
 async function playCurrentLine(){
   const pb=document.getElementById('playbtn');
-  // (demo works too — free browser voice needs no key)
   // If playing or loading, stop and bail — second click = stop
   if(ttsLoading||ttsActive){stopAudio();return;}
   unlockAudio();
@@ -2852,7 +2808,6 @@ async function playCurrentLine(){
 
 async function readLine(){
   const btn=document.getElementById('speakbtn');
-  if(demoMode){exitDemo();return;}
   if(ttsLoading||ttsActive){stopAudio();return;}
   unlockAudio();
   btn.textContent='🔊 Loading...';btn.disabled=true;
