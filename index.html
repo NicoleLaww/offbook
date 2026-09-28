@@ -696,6 +696,48 @@ function delScript(name){
   writeSaved(loadSaved().filter(s=>s.name!==name));
   renderSaved();
 }
+// A script's name is the key everywhere else that points back at it —
+// Coaching Log entries tag a script by name (workKey/getWork don't, they
+// live inside the script object itself and move with it automatically).
+// Renaming has to cascade to those log entries, or they'd silently show
+// "(no longer saved)" for a script that's still there under a new name.
+// Inline edit, not prompt() — same pattern as renameScene(), guarded
+// against double-commit (Enter then the blur it triggers) the same way.
+function startRenameScript(oldName,nmDiv){
+  const inp=document.createElement('input');
+  inp.type='text';inp.className='sl-scene-input';inp.value=oldName;inp.style.width='100%';
+  nmDiv.innerHTML='';nmDiv.appendChild(inp);
+  inp.focus();inp.select();
+  let done=false;
+  const commit=async()=>{
+    if(done)return;done=true;
+    const newName=inp.value.trim();
+    if(!newName||newName===oldName){renderSaved();return;}
+    const arr=loadSaved();
+    if(arr.some(x=>x.name===newName)){
+      alert('A script named "'+newName+'" already exists — pick a different name.');
+      renderSaved();return;
+    }
+    const target=arr.find(x=>x.name===oldName);if(!target){renderSaved();return;}
+    target.name=newName;
+    writeSaved(arr);
+    const log=await idbGetAll('coachlog');
+    for(const e of log){if(e.scriptName===oldName)await idbAdd('coachlog',{...e,scriptName:newName});}
+    if(curName===oldName){
+      curName=newName;
+      const fn=document.getElementById('fname');if(fn)fn.textContent=newName;
+    }
+    renderSaved();
+    renderCoachLog();
+  };
+  const cancel=()=>{if(done)return;done=true;renderSaved();};
+  inp.addEventListener('keydown',e=>{
+    if(e.key==='Enter'){e.preventDefault();commit();}
+    else if(e.key==='Escape'){e.preventDefault();cancel();}
+  });
+  inp.addEventListener('blur',commit);
+  inp.addEventListener('click',e=>e.stopPropagation());
+}
 // "(free)" used to sit in this header, right below a route tile that ALSO
 // says "free" for something unrelated (the Gemini route) — easy to misread
 // as confirming your route choice. Renamed, and replaced with a live badge
@@ -777,7 +819,15 @@ function renderSaved(){
     const mine=s.lines.filter(l=>l.isMine).length;
     const row=document.createElement('div');row.className='saved-item';
     const info=document.createElement('div');info.style.cssText='flex:1;min-width:0';
-    info.innerHTML=`<div class="nm">${esc(s.name)}</div><div class="mt">${s.lines.length} lines${mine?' · '+mine+' yours':''}</div>`;
+    info.innerHTML=`<div class="mt">${s.lines.length} lines${mine?' · '+mine+' yours':''}</div>`;
+    const nmDiv=document.createElement('div');nmDiv.className='nm';
+    const nmText=document.createElement('span');nmText.textContent=s.name;
+    const renameBtn=document.createElement('button');
+    renameBtn.textContent='✎';renameBtn.title='Rename script';
+    renameBtn.style.cssText='background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;margin-left:8px;padding:2px 4px;';
+    renameBtn.addEventListener('click',e=>{e.stopPropagation();startRenameScript(s.name,nmDiv);});
+    nmDiv.appendChild(nmText);nmDiv.appendChild(renameBtn);
+    info.insertBefore(nmDiv,info.firstChild);
     // Per-script route toggle — a show that's confidential during the
     // audition can air later, so the route needs to be changeable per
     // script at any time, not just chosen once at upload.
