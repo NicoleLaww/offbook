@@ -272,8 +272,15 @@
   <input type="file" id="pdfin" accept="application/pdf,.pdf" onchange="doPDF(this.files[0])" style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;clip:rect(0,0,0,0);">
   <div id="upst" style="font-size:13px;color:var(--muted);margin-top:12px;min-height:20px;"></div>
   <div class="err" id="uperr"></div>
-  <div id="saved"></div>
-  <div id="coachlog-wrap" style="margin-top:28px;padding-top:20px;border-top:1px solid var(--border)">
+  <div class="scene-tabs" id="main-tabs" style="margin-top:28px;padding-top:20px;border-top:1px solid var(--border);margin-bottom:16px">
+    <button class="scene-tab active" data-tab="scripts" onclick="setMainTab('scripts')">📄 Scripts</button>
+    <button class="scene-tab" data-tab="analysis" onclick="setMainTab('analysis')">🧭 Analysis</button>
+  </div>
+  <div id="tab-scripts">
+    <div id="saved"></div>
+  </div>
+  <div id="tab-analysis" style="display:none">
+  <div id="coachlog-wrap">
     <div class="saved-h">Coaching log</div>
     <textarea id="log-ta" class="log-ta" rows="2" placeholder="e.g. coach said I missed the hook at top of act 2, chose to de-escalate when it needed to fight… (Enter to save, Shift+Enter for a new line)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();addLogEntry();}"></textarea>
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px">
@@ -307,6 +314,7 @@
     </div>
     <div id="backup-status" style="font-size:12px;color:var(--muted);margin-top:8px"></div>
   </details>
+  </div>
 </div>
 
 <!-- SCRIPT PICKER -->
@@ -710,6 +718,17 @@ function renderRevisionPicker(){
   sel.innerHTML='<option value="">None — this is a new script</option>'
     +arr.map(s=>`<option value="${esc(s.name)}">${esc(s.name)}</option>`).join('');
   if(arr.some(s=>s.name===cur))sel.value=cur;
+}
+// Scripts / Analysis — splits the upload screen so it isn't one long stack
+// of every section at once. Both sides render regardless of which is
+// visible (cheap, local-only work), so switching tabs is a pure display
+// toggle with nothing to re-fetch.
+let _mainTab='scripts';
+function setMainTab(tab){
+  _mainTab=tab;
+  document.querySelectorAll('#main-tabs .scene-tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
+  document.getElementById('tab-scripts').style.display=tab==='scripts'?'block':'none';
+  document.getElementById('tab-analysis').style.display=tab==='analysis'?'block':'none';
 }
 function renderSaved(){
   renderRevisionPicker();
