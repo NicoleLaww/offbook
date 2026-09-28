@@ -301,16 +301,16 @@
     <div class="saved-h">Activity <span class="kfree">automatic — uploads, revisions, breakdowns, gut-checks</span></div>
     <div id="activity-list" style="font-size:12px;color:var(--muted)">Loading…</div>
   </div>
-  <div id="backup-wrap" style="margin-top:28px;padding-top:20px;border-top:1px solid var(--border)">
-    <div class="saved-h">Backup <span class="kfree">scripts, coaching log &amp; activity — never your API keys</span></div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap">
+  <details style="margin-top:28px;padding-top:20px;border-top:1px solid var(--border)">
+    <summary class="saved-h" style="cursor:pointer;list-style:none">Backup <span class="kfree">scripts, coaching log &amp; activity — never your API keys</span></summary>
+    <div id="last-backup" style="font-size:11px;color:var(--muted);margin-top:10px"></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
       <button class="ghost" onclick="exportAllData()">⬇ Export all data</button>
       <button class="ghost" onclick="document.getElementById('import-file').click()">⬆ Import</button>
       <input type="file" id="import-file" accept="application/json,.json" onchange="importAllData(this.files[0])" style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;clip:rect(0,0,0,0);">
     </div>
-    <div id="last-backup" style="font-size:11px;color:var(--muted);margin-top:8px"></div>
     <div id="backup-status" style="font-size:12px;color:var(--muted);margin-top:8px"></div>
-  </div>
+  </details>
 </div>
 
 <!-- SCRIPT PICKER -->
