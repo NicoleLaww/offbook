@@ -276,9 +276,19 @@
   <div id="coachlog-wrap" style="margin-top:28px;padding-top:20px;border-top:1px solid var(--border)">
     <div class="saved-h">Coaching log</div>
     <textarea id="log-ta" class="log-ta" rows="2" placeholder="e.g. coach said I missed the hook at top of act 2, chose to de-escalate when it needed to fight… (Enter to save, Shift+Enter for a new line)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();addLogEntry();}"></textarea>
-    <select id="log-script" style="margin-bottom:10px"><option value="">General note (not tied to a script)</option></select>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px">
+      <select id="log-script" style="flex:1;min-width:160px"><option value="">General note (not tied to a script)</option></select>
+      <input id="log-theme" type="text" placeholder="theme (optional, e.g. escalation)" style="flex:1;min-width:160px;background:transparent;border:none;border-bottom:1px dashed var(--border);color:var(--muted);font-family:'DM Mono',monospace;font-size:12px;padding:2px 0;outline:none;">
+    </div>
     <button class="ghost" onclick="addLogEntry()">+ Add note</button>
+    <div class="scene-tabs" id="log-view-tabs" style="margin-top:16px;margin-bottom:10px">
+      <button class="scene-tab active" data-view="date" onclick="setLogView('date')">Date</button>
+      <button class="scene-tab" data-view="script" onclick="setLogView('script')">Script</button>
+      <button class="scene-tab" data-view="genre" onclick="setLogView('genre')">Genre</button>
+      <button class="scene-tab" data-view="pattern" onclick="setLogView('pattern')">Pattern</button>
+    </div>
     <div id="log-list"></div>
+    <div id="log-tagsuggest-wrap" style="margin-top:10px"></div>
     <div id="patterns-wrap" style="margin-top:16px"></div>
     <div id="genre-wrap" style="margin-top:16px;padding-top:16px;border-top:1px dashed var(--border)"></div>
   </div>
@@ -781,13 +791,16 @@ async function addLogEntry(){
   const text=ta.value.trim();if(!text)return;
   const scriptSel=document.getElementById('log-script');
   const scriptName=scriptSel?scriptSel.value:'';
+  const themeEl=document.getElementById('log-theme');
+  const theme=themeEl?themeEl.value.trim():'';
   await migrateCoachLogIfNeeded();
   // Date.now() alone can collide — two adds in the same millisecond (easy to
   // trigger programmatically, confirmed while testing) would get the SAME id,
   // and delLogEntry(id) would then delete every entry matching it, not just one.
-  await idbAdd('coachlog',{id:Date.now()+'-'+Math.random().toString(36).slice(2),text,at:Date.now(),scriptName:scriptName||null});
+  await idbAdd('coachlog',{id:Date.now()+'-'+Math.random().toString(36).slice(2),text,at:Date.now(),scriptName:scriptName||null,theme:theme||null});
   ta.value='';
   if(scriptSel)scriptSel.value='';
+  if(themeEl)themeEl.value='';
   await renderCoachLog();
 }
 async function delLogEntry(id){if(!confirm('Delete this note?'))return;await idbDelete('coachlog',id);await renderCoachLog();}
@@ -801,24 +814,152 @@ function renderLogScriptPicker(){
     +arr.map(s=>`<option value="${esc(s.name)}">${esc(s.name)}</option>`).join('');
   if(arr.some(s=>s.name===cur))sel.value=cur;
 }
+function buildLogRow(e,savedNames){
+  const row=document.createElement('div');row.className='saved-item';
+  const clickable=e.scriptName&&savedNames.has(e.scriptName);
+  row.innerHTML=`<div class="nm" style="white-space:normal">${esc(e.text)}`
+    +(e.scriptName?`<br><span class="kfree" style="${clickable?'cursor:pointer':''}">${clickable?'↩ ':''}${esc(e.scriptName)}${clickable?'':' (no longer saved)'}</span>`:'')
+    +(e.theme?`<br><span class="kfree">🏷️ ${esc(e.theme)}</span>`:'')
+    +`</div>`;
+  if(clickable)row.querySelector('.kfree').addEventListener('click',e2=>{e2.stopPropagation();loadScript(e.scriptName);});
+  const del=document.createElement('button');del.className='del';del.textContent='✕';
+  del.onclick=()=>delLogEntry(e.id); // closure, not a string-built onclick= — e.id is a string id now, not a number
+  row.appendChild(del);
+  return row;
+}
+// Date/Script/Genre/Pattern — see AskUserQuestion + plan discussion for why
+// each exists. Genre is resolved live from the script's own tag (not stored
+// on the note) so retagging a script's genre doesn't require touching every
+// note that mentions it.
+function logGroupKey(e){
+  if(_logView==='date')return new Date(e.at).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'});
+  if(_logView==='script')return e.scriptName||'General';
+  if(_logView==='genre'){
+    const s=e.scriptName&&loadSaved().find(x=>x.name===e.scriptName);
+    return (s&&(s.genre||'').trim())||'Ungenred';
+  }
+  return e.theme||'Untagged'; // pattern
+}
+let _logView='date';
+function setLogView(v){
+  _logView=v;
+  document.querySelectorAll('#log-view-tabs .scene-tab').forEach(b=>b.classList.toggle('active',b.dataset.view===v));
+  renderCoachLog();
+}
+// Session-scoped, same reasoning as _activityLimit — grows via "Show more"
+// instead of ever rendering years of notes at once.
+let _logLimit=20;
+function showMoreLog(){_logLimit+=20;renderCoachLog();}
 async function renderCoachLog(){
   const list=document.getElementById('log-list');if(!list)return;
   renderLogScriptPicker();
   const savedNames=new Set(loadSaved().map(s=>s.name));
+  const all=await loadCoachLog(); // already sorted newest-first
+  const entries=all.slice(0,_logLimit);
   list.innerHTML='';
-  (await loadCoachLog()).forEach(e=>{
-    const row=document.createElement('div');row.className='saved-item';
-    const clickable=e.scriptName&&savedNames.has(e.scriptName);
-    row.innerHTML=`<div class="nm" style="white-space:normal">${esc(e.text)}`
-      +(e.scriptName?`<br><span class="kfree" style="${clickable?'cursor:pointer':''}">${clickable?'↩ ':''}${esc(e.scriptName)}${clickable?'':' (no longer saved)'}</span>`:'')
-      +`</div>`;
-    if(clickable)row.querySelector('.kfree').addEventListener('click',e2=>{e2.stopPropagation();loadScript(e.scriptName);});
-    const del=document.createElement('button');del.className='del';del.textContent='✕';
-    del.onclick=()=>delLogEntry(e.id); // closure, not a string-built onclick= — e.id is a string id now, not a number
-    row.appendChild(del);list.appendChild(row);
-  });
+  // Bucket (not a sequential-header scan) because a script/genre/theme's
+  // notes aren't necessarily contiguous in time — a sequential scan would
+  // split one script into several repeated headers whenever another script
+  // got noted about in between.
+  const groups=new Map();
+  for(const e of entries){
+    const k=logGroupKey(e);
+    if(!groups.has(k))groups.set(k,[]);
+    groups.get(k).push(e);
+  }
+  const ordered=[...groups.entries()].sort((a,b)=>Math.max(...b[1].map(x=>x.at))-Math.max(...a[1].map(x=>x.at)));
+  for(const [key,groupEntries] of ordered){
+    const h=document.createElement('div');h.style.cssText='margin-top:10px;font-weight:600;color:var(--text)';h.textContent=key;
+    list.appendChild(h);
+    for(const e of groupEntries)list.appendChild(buildLogRow(e,savedNames));
+  }
+  if(all.length>_logLimit){
+    const more=document.createElement('button');more.className='ghost';more.style.marginTop='10px';
+    more.textContent=`Show more (${all.length-_logLimit} older)`;
+    more.onclick=showMoreLog;
+    list.appendChild(more);
+  }
+  await renderTagSuggestGate();
   await renderPatternsGate();
 }
+
+// TAG SUGGESTIONS — on-demand, cheap, and never applied without her clicking
+// something. Same shape as runGenreAnalysis()/runPatterns(): manual button,
+// forced-cheap model, routed through the same paid/free safety computation.
+const TAG_SUGGEST_PROMPT=`You're proposing short theme tags for an actor's own logged coaching notes — one or two words each, same direct craft voice as the rest of her tool (banned: "perhaps," "one could argue," "you might consider"). A theme names a RECURRING kind of note (e.g. "escalation," "story position," "over-preparation," "instinct vs. plan") — not a one-off summary of that single note's content.
+
+You'll get a list of notes, each with an id. For each, propose ONE short theme, or null if nothing recurring/nameable fits — a manufactured theme is worse than honestly saying there isn't a clean one yet.
+
+Return ONLY a JSON object: {"suggestions":[{"id":"...","theme":"..."}, ...]} — one entry per note given, theme a short string or null.`;
+async function renderTagSuggestGate(){
+  const wrap=document.getElementById('log-tagsuggest-wrap');if(!wrap)return;
+  if(_logView!=='pattern'){wrap.innerHTML='';return;}
+  // Don't stomp an in-progress review — each accept/skip already updates the
+  // DOM directly; this only (re)builds the gate once that review is empty.
+  const resEl=document.getElementById('tagsuggest-result');
+  if(resEl&&resEl.querySelector('.saved-item'))return;
+  const untagged=(await loadCoachLog()).filter(e=>!e.theme);
+  if(!untagged.length){wrap.innerHTML='';return;}
+  wrap.innerHTML=`<button class="ghost" id="tagsuggest-btn" onclick="suggestLogTags()">🏷️ Suggest tags (${untagged.length} untagged)</button><div id="tagsuggest-result" style="margin-top:10px"></div>`;
+}
+async function suggestLogTags(){
+  const btn=document.getElementById('tagsuggest-btn'),resEl=document.getElementById('tagsuggest-result');
+  if(btn)btn.disabled=true;
+  if(resEl)resEl.innerHTML='<span style="color:var(--muted)">Thinking…</span>';
+  const untagged=(await loadCoachLog()).filter(e=>!e.theme);
+  const _esc=t=>(t||'').replace(/<\/?notes>/gi,'[tag]');
+  const body=untagged.map(e=>`- id:${e.id} — ${_esc(e.text)}`).join('\n');
+  const prompt=`<notes>\n${body}\n</notes>\n\nPropose themes.`;
+  // Same rule as Patterns/Genre: paid wins unless every script these
+  // untagged notes touch is explicitly marked free.
+  const scriptNames=[...new Set(untagged.map(e=>e.scriptName).filter(Boolean))];
+  const route=scriptNames.length&&scriptNames.every(n=>getScriptRoute(n)==='free') ? 'free' : 'paid';
+  try{
+    const reply=await craftLLM(TAG_SUGGEST_PROMPT,[{role:'user',content:prompt}],true,route);
+    // craftLLM has no response_format constraint (it's shared with plain-prose
+    // callers) — the model usually returns bare JSON per the prompt, but
+    // defensively slice to the outermost braces in case it wraps it in prose.
+    let parsed;
+    try{parsed=JSON.parse(reply);}
+    catch(e){parsed=JSON.parse(reply.slice(reply.indexOf('{'),reply.lastIndexOf('}')+1));}
+    const suggestions=(parsed.suggestions||[]).filter(s=>s&&s.id&&s.theme);
+    if(!suggestions.length){
+      if(resEl)resEl.innerHTML='<span style="color:var(--muted)">No clean recurring themes yet.</span>';
+    } else {
+      renderTagSuggestions(suggestions,untagged);
+      logActivity('patterns','Tag suggestions run');
+    }
+  }catch(e){
+    if(resEl)resEl.innerHTML='<span style="color:var(--accent)">⚠ '+esc(/fetch/i.test(e.message)?'Couldn\'t reach the model — check your key has credits':e.message)+'</span>';
+  }
+  if(btn)btn.disabled=false;
+}
+// Nothing here writes to coachlog until "Use this" / "Accept all" is
+// clicked — closing this panel without acting leaves every note untouched.
+function renderTagSuggestions(suggestions,untagged){
+  const resEl=document.getElementById('tagsuggest-result');if(!resEl)return;
+  const byId=new Map(untagged.map(e=>[e.id,e]));
+  resEl.innerHTML='';
+  const acceptAll=document.createElement('button');acceptAll.className='ghost';acceptAll.textContent='✓ Accept all shown';acceptAll.style.marginBottom='8px';
+  resEl.appendChild(acceptAll);
+  const rows=[];
+  suggestions.forEach(s=>{
+    const entry=byId.get(s.id);if(!entry)return;
+    const row=document.createElement('div');row.className='saved-item';
+    const preview=entry.text.length>80?entry.text.slice(0,80)+'…':entry.text;
+    row.innerHTML=`<div class="nm" style="white-space:normal">${esc(preview)}<br><span class="kfree">🏷️ ${esc(s.theme)}</span></div>`;
+    const use=document.createElement('button');use.className='ghost';use.textContent='✓ Use this';
+    const skip=document.createElement('button');skip.className='del';skip.textContent='✕';
+    const apply=async()=>{await idbAdd('coachlog',{...entry,theme:s.theme});row.remove();await renderCoachLog();};
+    use.onclick=apply;
+    skip.onclick=()=>row.remove();
+    row.appendChild(use);row.appendChild(skip);
+    resEl.appendChild(row);
+    rows.push({apply});
+  });
+  acceptAll.onclick=async()=>{for(const r of [...rows])await r.apply();};
+}
+
 // How many checklist entries (across every saved script) actually have data —
 // used the same way as log-entry count, as the "is there enough to say
 // anything real yet" gate for Coach's Notes.
