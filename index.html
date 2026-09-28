@@ -319,6 +319,7 @@
     <div class="logo">OFF<span>BOOK</span></div>
     <div style="display:flex;gap:12px;align-items:center">
       <span id="fname" style="font-size:11px;color:var(--muted)"></span>
+      <span id="script-route-badge" class="kfree" style="cursor:pointer" onclick="toggleScriptRoute(curName)"></span>
       <button class="ghost" onclick="goLibrary()">← Scripts</button>
     </div>
   </div>
@@ -611,17 +612,21 @@ function writeSaved(arr){
 // (oldest survives longest since rest.unshift puts the current one first),
 // or null if nothing was evicted — so a fresh upload can tell you it happened
 // instead of it silently disappearing from the list.
-function saveCurrent(){
+// routeOverride is passed ONLY by doPDF() at upload time (the moment the
+// actor explicitly picks confidential/public) — every other caller (line
+// toggles, cuts, scene renames) omits it, so the spread below just keeps
+// whatever route was last explicitly set instead of silently resetting it.
+function saveCurrent(routeOverride){
   if(!curName||!SL.length)return null;
   const arr=loadSaved();
   // Spread the existing record first so any field beyond work/lines (genre,
-  // and whatever gets added next — e.g. a per-script route) survives a save
-  // automatically. Previously this rebuilt a bare {name,work,lines} object on
-  // EVERY save — including the one buildScript() fires on a plain Load — so a
-  // genre tag vanished the instant you opened the very script you tagged.
+  // route, and whatever gets added next) survives a save automatically.
+  // Previously this rebuilt a bare {name,work,lines} object on EVERY save —
+  // including the one buildScript() fires on a plain Load — so a genre tag
+  // vanished the instant you opened the very script you tagged.
   const existing=arr.find(s=>s.name===curName)||{};
   const rest=arr.filter(s=>s.name!==curName);
-  rest.unshift({...existing,name:curName,work:existing.work||{},lines:SL.map(l=>({char:l.char,direction:l.direction,text:l.text,before:l.before||'',after:l.after||'',isMine:!!l.isMine,cut:!!l.cut,sceneStart:!!l.sceneStart,sceneHeading:l.sceneHeading||'',sceneLabel:l.sceneLabel||'',carried:!!l.carried,carriedFrom:l.carriedFrom||'',carriedFuzzy:!!l.carriedFuzzy}))});
+  rest.unshift({...existing,name:curName,work:existing.work||{},route:routeOverride||existing.route||'paid',lines:SL.map(l=>({char:l.char,direction:l.direction,text:l.text,before:l.before||'',after:l.after||'',isMine:!!l.isMine,cut:!!l.cut,sceneStart:!!l.sceneStart,sceneHeading:l.sceneHeading||'',sceneLabel:l.sceneLabel||'',carried:!!l.carried,carriedFrom:l.carriedFrom||'',carriedFuzzy:!!l.carriedFuzzy}))});
   // 500, not 30 — now backed by IndexedDB, not localStorage's ~5-10MB
   // ceiling, so this is a sanity ceiling against pathological growth, not
   // the real constraint it used to be. No realistic multi-year acting
@@ -637,6 +642,7 @@ function loadScript(name){
   recomputeScenes();
   curName=name;
   document.getElementById('fname').textContent=name;
+  updateScriptRouteBadge();
   buildScript();show('script-screen');
 }
 // Scene numbers are always derived, never stored directly — the actor can
@@ -670,8 +676,31 @@ function delScript(name){
 // as confirming your route choice. Renamed, and replaced with a live badge
 // that actually reflects uploadRoute, so it's visible right where you click
 // Load, not just on the tile above (which may be scrolled out of view).
+// Labeled "New uploads use" (not just "Using") since each saved script now
+// carries its OWN route (see getScriptRoute) — this badge is specifically
+// about what a fresh PDF drop will use, not what's active for any one script.
 function routeLabel(){return uploadRoute==='free' ? '🆓 Gemini — free' : '🔒 OpenAI — paid';}
-function updateRouteBadge(){const b=document.getElementById('saved-route-badge');if(b)b.textContent='Using: '+routeLabel();}
+function updateRouteBadge(){const b=document.getElementById('saved-route-badge');if(b)b.textContent='New uploads use: '+routeLabel();}
+// A show that's confidential during the audition can air later — the route
+// a script needs isn't fixed forever, so it lives on the script itself
+// (defaulting to 'paid', the safe choice, for anything saved before this
+// existed) instead of one global switch for the whole app.
+function getScriptRoute(name){const s=loadSaved().find(x=>x.name===name);return (s&&s.route)||'paid';}
+function scriptRouteLabel(route){return route==='free' ? '🆓 free' : '🔒 paid';}
+function toggleScriptRoute(name){
+  const arr=loadSaved();
+  const s=arr.find(x=>x.name===name);if(!s)return;
+  s.route=(s.route||'paid')==='paid'?'free':'paid';
+  writeSaved(arr);
+  if(curName===name){uploadRoute=s.route;updateScriptRouteBadge();} // keep the open script's own badge (and any in-flight AI calls) in sync
+  renderSaved();
+}
+function updateScriptRouteBadge(){
+  const b=document.getElementById('script-route-badge');if(!b||!curName)return;
+  const route=getScriptRoute(curName);
+  b.textContent=scriptRouteLabel(route);
+  b.title='This script uses '+(route==='free'?'the free Gemini route':'your paid OpenAI key')+' — click to switch';
+}
 // Lets an upload with a DIFFERENT filename than the original still carry
 // over unchanged scenes' work (same-filename revisions are detected
 // automatically in doPDF — this is only for when casting renames the file).
@@ -712,6 +741,15 @@ function renderSaved(){
     const row=document.createElement('div');row.className='saved-item';
     const info=document.createElement('div');info.style.cssText='flex:1;min-width:0';
     info.innerHTML=`<div class="nm">${esc(s.name)}</div><div class="mt">${s.lines.length} lines${mine?' · '+mine+' yours':''}</div>`;
+    // Per-script route toggle — a show that's confidential during the
+    // audition can air later, so the route needs to be changeable per
+    // script at any time, not just chosen once at upload.
+    const routeBadge=document.createElement('span');
+    routeBadge.className='kfree';routeBadge.style.cssText='cursor:pointer;margin-left:6px';
+    routeBadge.textContent=scriptRouteLabel(s.route||'paid');
+    routeBadge.title='Click to switch this script between paid (OpenAI) and free (Gemini)';
+    routeBadge.addEventListener('click',e=>{e.stopPropagation();toggleScriptRoute(s.name);});
+    info.querySelector('.mt').appendChild(routeBadge);
     // Optional, manual — free-text since acting genres don't fit a fixed
     // enum ("dramedy", "psychological thriller"). Feeds the genre comparison
     // below; a script with no genre set just doesn't count toward it.
@@ -912,19 +950,24 @@ async function runGenreAnalysis(){
   if(btn)btn.disabled=true;
   if(resEl)resEl.innerHTML='<span style="color:var(--muted)">Thinking…</span>';
   const byGenre={};
+  const contributingScripts=new Set();
   for(const s of loadSaved()){
     const g=(s.genre||'').trim();if(!g||!s.work)continue;
     for(const k in s.work){
       const cl=s.work[k].checklist;if(!cl)continue;
       const bits=[cl.verb&&`verb: ${cl.verb}`,cl.position&&`position: ${cl.position}`,cl.direction&&`direction: ${cl.direction}`,cl.gutCheck&&`gut-check: ${cl.gutCheck}`].filter(Boolean);
-      if(bits.length){byGenre[g]=byGenre[g]||[];byGenre[g].push(`[${s.name} — ${k}] `+bits.join(' · '));}
+      if(bits.length){byGenre[g]=byGenre[g]||[];byGenre[g].push(`[${s.name} — ${k}] `+bits.join(' · '));contributingScripts.add(s.name);}
     }
   }
   const _esc=t=>(t||'').replace(/<\/?genre>/gi,'[tag]');
   const body=Object.entries(byGenre).map(([g,lines])=>`GENRE: ${_esc(g)}\n${_esc(lines.join('\n'))}`).join('\n\n---\n\n');
   const prompt=`<genredata>\n${body||'(no tagged checklist data yet)'}\n</genredata>\n\nCompare across genres.`;
   try{
-    const reply=await craftLLM(GENRE_PROMPT,[{role:'user',content:prompt}],true);
+    // Aggregates across multiple scripts, which can carry different routes —
+    // paid wins unless every contributing script is explicitly marked free,
+    // so material from a confidential script never rides along on a free call.
+    const route=[...contributingScripts].every(n=>getScriptRoute(n)==='free')&&contributingScripts.size ? 'free' : 'paid';
+    const reply=await craftLLM(GENRE_PROMPT,[{role:'user',content:prompt}],true,route);
     localStorage.setItem('offbook_genre',JSON.stringify({reply,at:Date.now()}));
     if(resEl)resEl.innerHTML=mdToHtml(reply);
     logActivity('genre',"Genre comparison run");
@@ -1208,7 +1251,7 @@ async function doPDF(file){
     }
     if(revPickEl)revPickEl.value=''; // don't let a stale pick carry into the NEXT unrelated upload
     curName=file.name;
-    const evicted=saveCurrent();
+    const evicted=saveCurrent(uploadRoute); // the route explicitly chosen above, for THIS upload
     const evictNote = evicted ? ` (dropped your oldest saved script, "${evicted}", to stay under 500)` : '';
     const revNote = (carriedCount||storyCarried)
       ? ` — carried over ${carriedCount?`${carriedCount} unchanged scene${carriedCount>1?'s':''}`:''}${carriedCount&&storyCarried?' + ':''}${storyCarried?'Story Analysis':''}${newSceneCount?` (${newSceneCount} scene${newSceneCount>1?'s':''} new/changed — re-run Story Analysis for an accurate read)`:''}`
@@ -1751,8 +1794,11 @@ function mdToHtml(md){
   if(inUl)html+='</ul>';
   return html;
 }
-async function craftLLM(system,messages,forceLight){
-  if(uploadRoute==='free'){
+// route is explicit per call now (each script carries its own — see
+// getScriptRoute) — falls back to the global uploadRoute only for a call
+// site that genuinely has no script context of its own.
+async function craftLLM(system,messages,forceLight,route){
+  if((route||uploadRoute)==='free'){
     if(!gemKey)throw new Error('Public mode needs a free Gemini key.');
     const contents=messages.map(m=>({role:m.role==='assistant'?'model':'user',parts:[{text:m.content}]}));
     const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+MODELS.gemini+':generateContent?key='+encodeURIComponent(gemKey),{
@@ -1855,7 +1901,7 @@ async function gutCheck(){
   const scopeNote = scene==='all' ? 'whole script' : `Scene ${scene}${sceneNameFor(scene)?` (${sceneNameFor(scene)})`:''}`;
   const prompt=`I'm playing: ${char} — ${scopeNote}\n\n<answers>\n${answers}\n</answers>\n\n<scene>\n${_esc(sceneText(scene))}\n</scene>\n\nGive me the gut check.`;
   try{
-    const reply=await craftLLM(GUTCHECK_PROMPT,[{role:'user',content:prompt}],true);
+    const reply=await craftLLM(GUTCHECK_PROMPT,[{role:'user',content:prompt}],true,getScriptRoute(curName));
     resEl.innerHTML=mdToHtml(reply);
     thread.checklist=cl;
     thread.checklist.gutCheck=reply;
@@ -1883,11 +1929,16 @@ async function runPatterns(){
   const btn=document.getElementById('patterns-btn'),resEl=document.getElementById('patterns-result');
   if(btn)btn.disabled=true;
   if(resEl)resEl.innerHTML='<span style="color:var(--muted)">Thinking…</span>';
-  const {logEntries,digest}=await buildPatternsDigest();
+  const {logEntries,digest,sources}=await buildPatternsDigest();
   const _esc=t=>(t||'').replace(/<\/?(log|checklists)>/gi,'[tag]');
   const prompt=`<log>\n${_esc(logEntries)||'(no logged notes)'}\n</log>\n\n<checklists>\n${_esc(digest)||'(no checklist data)'}\n</checklists>\n\nGive me the patterns.`;
   try{
-    const reply=await craftLLM(PATTERNS_PROMPT,[{role:'user',content:prompt}],true);
+    // Same rule as the genre comparison: this pulls checklist data from
+    // however many scripts are contributing, each possibly on a different
+    // route — paid wins unless every one of them is explicitly free.
+    const contributingScripts=Object.keys((sources&&sources.scripts)||{});
+    const route=contributingScripts.length&&contributingScripts.every(n=>getScriptRoute(n)==='free') ? 'free' : 'paid';
+    const reply=await craftLLM(PATTERNS_PROMPT,[{role:'user',content:prompt}],true,route);
     await savePatternsCache(reply);
     await renderPatternsGate();
     logActivity('patterns', "Coach's Notes run");
@@ -2014,7 +2065,7 @@ async function sendWork(){
     // Story analysis is a short, exploratory pass — always run it on the
     // light model regardless of the cheap-mode checkbox, which is reserved
     // for the actor to decide per scene breakdown, where sharpness matters more.
-    const reply=await craftLLM(systemPrompt,thread.messages, scene==='all' ? true : isCheapMode());
+    const reply=await craftLLM(systemPrompt,thread.messages, scene==='all' ? true : isCheapMode(), getScriptRoute(curName));
     thread.messages.push({role:'assistant',content:reply});
     delete thread._revised; // fresh reply landed — the carried-over-after-a-revision flag no longer applies
     setWork(scene,char,thread);
@@ -2073,7 +2124,7 @@ async function generateAllScenes(){
     try{
       const first=buildFirstMessage(scene,char,'','');
       const thread={messages:[{role:'user',content:first}]};
-      const reply=await craftLLM(CRAFT_PROMPT,thread.messages,isCheapMode());
+      const reply=await craftLLM(CRAFT_PROMPT,thread.messages,isCheapMode(),getScriptRoute(curName));
       thread.messages.push({role:'assistant',content:reply});
       setWork(scene,char,thread);
     }catch(e){
