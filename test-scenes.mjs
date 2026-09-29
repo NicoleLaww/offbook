@@ -63,11 +63,14 @@ const scope = new Function(`
   ${extractFn('bestMatches')}
   ${extractFn('sceneTokens')}
   ${extractFn('bestFuzzySceneMatch')}
+  ${extractFn('carryLineFlags')}
+  ${extractFn('isOverloadMsg')}
+  ${extractFn('isQuotaMsg')}
   let SL;
   ${extractFn('recomputeScenes')}
-  return { norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, recomputeScenes, setSL: v => SL = v, getSL: () => SL };
+  return { norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, recomputeScenes, setSL: v => SL = v, getSL: () => SL };
 `)();
-const { cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, setSL, getSL, recomputeScenes } = scope;
+const { cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, setSL, getSL, recomputeScenes } = scope;
 
 let pass = 0, fail = 0;
 function t(desc, actual, expected) {
@@ -249,6 +252,63 @@ t('bestFuzzySceneMatch: picks the higher-ratio candidate among several old scene
     oldLines: [scene(1, 'completely unrelated dialogue about something else'), scene(2, baseText)],
     oldScenes: [1, 2], claimed: new Set()
   }]).os, 2);
+
+// --- carryLineFlags(): per-line isMine/cut carryover for a matched scene —
+// a scene showing "carried over" used to still silently wipe which lines
+// were marked hers and which were cut, on EVERY revision including a
+// 100%-unchanged one. ---
+function ln(char, isMine, cut) { return { char, isMine, cut }; }
+
+{
+  const oldLines = [ln('PEG', true, false), ln('LIAM', false, true)];
+  const newLines = [ln('PEG', false, false), ln('LIAM', false, false)];
+  carryLineFlags(oldLines, newLines);
+  t('carryLineFlags: carries isMine across when the character at that position matches',
+    newLines[0], { char: 'PEG', isMine: true, cut: false });
+  t('carryLineFlags: carries cut across when the character at that position matches',
+    newLines[1], { char: 'LIAM', isMine: false, cut: true });
+}
+{
+  // A shifted line (an extra stage direction split differently) means the
+  // character at position 0 no longer matches — must skip that pair rather
+  // than hand PEG's mark to LIAM's line.
+  const oldLines = [ln('PEG', true, false)];
+  const newLines = [ln('LIAM', false, false)];
+  carryLineFlags(oldLines, newLines);
+  t('carryLineFlags: a character mismatch at a position is skipped, never misattributed',
+    newLines[0], { char: 'LIAM', isMine: false, cut: false });
+}
+{
+  // Old scene shorter than the new one (a line got added) — positions past
+  // the old scene's length are left completely untouched.
+  const oldLines = [ln('PEG', true, false)];
+  const newLines = [ln('PEG', false, false), ln('LIAM', true, true)];
+  carryLineFlags(oldLines, newLines);
+  t('carryLineFlags: carries the overlapping position', newLines[0].isMine, true);
+  t('carryLineFlags: never touches a new line past the old scene\'s length',
+    newLines[1], { char: 'LIAM', isMine: true, cut: true });
+}
+t('carryLineFlags: coerces a missing/undefined isMine to false, never leaves it undefined',
+  (() => { const nl = [ln('PEG', undefined, undefined)]; carryLineFlags([ln('PEG', undefined, undefined)], nl); return nl[0]; })(),
+  { char: 'PEG', isMine: false, cut: false });
+
+// --- isOverloadMsg() / isQuotaMsg(): which error gets which one-click fix in
+// wkRenderError (⚡ Switch to paid & retry vs the same button under different
+// copy vs a dead-end generic message). A regex edit that lets these overlap,
+// or stops matching the real provider wording, silently changes which button
+// — or none at all — a real error shows. ---
+t('isOverloadMsg: matches Gemini\'s "high demand" overload wording', isOverloadMsg('The model is overloaded. Please try again later.'), true);
+t('isOverloadMsg: matches "please try again" alone', isOverloadMsg('Please try again in a few seconds.'), true);
+t('isOverloadMsg: does not match a quota error (the two must stay mutually exclusive)',
+  isOverloadMsg('Free Gemini tier has no quota on this key (it reports limit 0).'), false);
+t('isOverloadMsg: does not match an unrelated generic error', isOverloadMsg('Invalid API key.'), false);
+t('isOverloadMsg: never throws on a missing/undefined message', isOverloadMsg(undefined), false);
+
+t('isQuotaMsg: matches the app\'s own cleaned "no quota" message', isQuotaMsg('Free Gemini tier has no quota on this key (it reports limit 0).'), true);
+t('isQuotaMsg: matches Google\'s real raw "limit: 0" wording', isQuotaMsg('You exceeded your current quota, limit: 0, please check your plan and billing details.'), true);
+t('isQuotaMsg: does not match an overload error (the two must stay mutually exclusive)',
+  isQuotaMsg('The model is overloaded. Please try again later.'), false);
+t('isQuotaMsg: does not match an unrelated generic error', isQuotaMsg('Invalid API key.'), false);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

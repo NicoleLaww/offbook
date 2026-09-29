@@ -1409,23 +1409,10 @@ async function doPDF(file){
           newFirst.carried=true;newFirst.carriedFrom=p.source.name;
           if(fuzzy)newFirst.carriedFuzzy=true; // shown as a distinct "possible match — verify" badge, not the same green "carried over" one
         }
-        // Carry per-line isMine/cut too, not just the breakdown — a scene
-        // showing "carried over" used to still silently wipe which lines
-        // were marked hers and which were cut, on EVERY upload including a
-        // 100%-unchanged revision. Aligned by position within the scene
-        // (a matched scene has essentially the same lines in the same
-        // order) and gated on the character matching at that position too,
-        // so a shifted line count skips the uncertain pairs rather than
-        // misattributing one character's mark to another's line.
-        const oldSceneLines=p.oldLines.filter(l=>l.scene===os);
-        const newSceneLines=SL.filter(l=>l.scene===ns);
-        const n=Math.min(oldSceneLines.length,newSceneLines.length);
-        for(let i=0;i<n;i++){
-          if(oldSceneLines[i].char===newSceneLines[i].char){
-            newSceneLines[i].isMine=!!oldSceneLines[i].isMine;
-            newSceneLines[i].cut=!!oldSceneLines[i].cut;
-          }
-        }
+        // Carry per-line isMine/cut too, not just the breakdown — see
+        // carryLineFlags() for why (a scene showing "carried over" used to
+        // still silently wipe which lines were marked hers and which were cut).
+        carryLineFlags(p.oldLines.filter(l=>l.scene===os),SL.filter(l=>l.scene===ns));
       }
       const newScenes=[...new Set(SL.map(l=>l.scene))];
       const unmatched=[];
@@ -1770,6 +1757,24 @@ function sceneNameFor(scene){const l=SL.find(x=>x.scene===scene&&x._sceneFirst);
 // breakdown to a DIFFERENT scene that just happens to be similar.
 function sceneFingerprint(lines,scene){
   return lines.filter(l=>l.scene===scene).map(l=>norm(l.text)).join('|');
+}
+// Pure: carries isMine/cut across a matched scene's lines, aligned by
+// position within the scene (a matched scene has essentially the same lines
+// in the same order) and gated on the character matching at that position
+// too, so a shifted line count skips the uncertain pairs rather than
+// misattributing one character's mark to another's line. Mutates
+// newSceneLines in place (same style as recomputeScenes); split out of
+// applyCarry so it's testable without a live upload. A scene showing
+// "carried over" used to still silently wipe which lines were marked hers
+// and which were cut, on EVERY upload including a 100%-unchanged revision.
+function carryLineFlags(oldSceneLines,newSceneLines){
+  const n=Math.min(oldSceneLines.length,newSceneLines.length);
+  for(let i=0;i<n;i++){
+    if(oldSceneLines[i].char===newSceneLines[i].char){
+      newSceneLines[i].isMine=!!oldSceneLines[i].isMine;
+      newSceneLines[i].cut=!!oldSceneLines[i].cut;
+    }
+  }
 }
 // Word-overlap tokens for one scene — shared by the fuzzy carryover match
 // below, pulled out of doPDF's local scope so bestFuzzySceneMatch is a plain,
