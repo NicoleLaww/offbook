@@ -336,6 +336,13 @@
     <span>Scenes merged.</span>
     <button class="ghost" onclick="undoMerge()">↩ Undo merge</button>
   </div>
+  <div id="merge-suggest-banner" style="display:none;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;background:rgba(251,191,36,.08);border:1px solid var(--amber);border-radius:8px;padding:10px 12px;font-size:12px;color:var(--amber);margin-bottom:16px">
+    <span id="merge-suggest-label"></span>
+    <span style="display:flex;gap:6px">
+      <button class="ghost" onclick="acceptMergeSuggestion()">↩ Merge again</button>
+      <button class="ghost" onclick="dismissMergeSuggestion()">Keep split</button>
+    </span>
+  </div>
   <div id="scene-tabs" class="scene-tabs" style="display:none"></div>
   <div id="slines"></div>
   <div class="bot">
@@ -653,6 +660,7 @@ function loadScript(name){
   SL=s.lines.map((l,i)=>({...l,id:i,isMine:!!l.isMine}));
   recomputeScenes();
   _lastMerge=null; // a fresh line-id set — any pending undo-merge pointed at the PREVIOUS script's lines
+  _mergeSuggestion=null;
   curName=name;
   document.getElementById('fname').textContent=name;
   updateScriptRouteBadge();
@@ -719,6 +727,21 @@ function renderMergeUndoBanner(){
   const b=document.getElementById('merge-undo-banner');if(!b)return;
   b.style.display=_lastMerge?'flex':'none';
 }
+// See the revision-carryover pass in doPDF() for how this gets set: a
+// candidate {label, apply} object, or null. Never applied automatically —
+// only acceptMergeSuggestion() (a click) calls .apply().
+let _mergeSuggestion=null;
+function renderMergeSuggestBanner(){
+  const b=document.getElementById('merge-suggest-banner');if(!b)return;
+  b.style.display=_mergeSuggestion?'flex':'none';
+  if(_mergeSuggestion){const l=document.getElementById('merge-suggest-label');if(l)l.textContent=_mergeSuggestion.label;}
+}
+function acceptMergeSuggestion(){
+  if(!_mergeSuggestion)return;
+  const s=_mergeSuggestion;_mergeSuggestion=null;
+  s.apply();
+}
+function dismissMergeSuggestion(){_mergeSuggestion=null;renderMergeSuggestBanner();}
 function delScript(name){
   if(!confirm('Delete saved script "'+name+'"?'))return;
   writeSaved(loadSaved().filter(s=>s.name!==name));
@@ -1327,6 +1350,7 @@ async function doPDF(file){
     SL=merged.map((l,i)=>({...l,text:cleanText(l.text),before:cleanText(l.before||''),after:cleanText(l.after||''),id:i,isMine:false}));
     recomputeScenes();
     _lastMerge=null; // a fresh line-id set — any pending undo-merge pointed at the PREVIOUS upload's lines
+    _mergeSuggestion=null; // ditto — re-set below only if this upload's own carryover pass finds one
 
     // Revision carryover — a re-upload (pink/blue pages) used to either
     // silently reattach old Scene Work under the WRONG new scene number
@@ -1416,9 +1440,10 @@ async function doPDF(file){
       // revision, at the cost of occasionally guessing — stays visible, not silent.
       const FUZZY_THRESHOLD=0.92;
       const sceneTokens=(lines,scene)=>tokenize(lines.filter(l=>l.scene===scene).map(l=>l.text).join(' ')).map(t=>t.n);
+      const stillUnmatched=[];
       for(const ns of unmatched){
         const nsTokens=sceneTokens(SL,ns);
-        if(!nsTokens.length){newSceneCount++;continue;}
+        if(!nsTokens.length){newSceneCount++;stillUnmatched.push(ns);continue;}
         let best=null,bestRatio=0;
         for(const p of prepared){
           for(const os of p.oldScenes){
@@ -1430,7 +1455,61 @@ async function doPDF(file){
           }
         }
         if(best&&bestRatio>=FUZZY_THRESHOLD)applyCarry(best.p,best.os,ns,true);
-        else newSceneCount++;
+        else {newSceneCount++;stillUnmatched.push(ns);}
+      }
+      // Merge-reversion suggestion. A scene an actor manually merged (see
+      // toggleSceneStart/undoMerge) has no memory left of where its internal
+      // boundary used to be — recomputeScenes just sees one scene — so a
+      // fresh upload's own heading detection re-splits it, and neither half
+      // exact/fuzzy-matches the old merged scene alone. That used to mean the
+      // merge (and that scene's carried-over work) just silently reappeared
+      // as two "new" scenes with no explanation. Rather than guess and
+      // auto-remerge — a real structural choice, not carryover's call to
+      // make — offer it back: if two ADJACENT still-unmatched new scenes,
+      // concatenated, reproduce an unclaimed old scene's fingerprint exactly,
+      // surface ONE suggestion (pairs only, first found) to accept or decline.
+      let mergeCandidate=null;
+      mergeSearch: for(const p of prepared){
+        for(const os of p.oldScenes){
+          if(p.claimed.has(os))continue;
+          const oldFp=sceneFingerprint(p.oldLines,os);
+          for(let k=0;k<stillUnmatched.length-1;k++){
+            const a=stillUnmatched[k],b=stillUnmatched[k+1];
+            if(b!==a+1)continue;
+            const combinedFp=[a,b].flatMap(n=>SL.filter(l=>l.scene===n)).map(l=>norm(l.text)).join('|');
+            if(combinedFp===oldFp){
+              const aFirst=SL.find(l=>l.scene===a&&l._sceneFirst),bFirst=SL.find(l=>l.scene===b&&l._sceneFirst);
+              if(aFirst&&bFirst){mergeCandidate={aId:aFirst.id,bId:bFirst.id,sceneNum:a,p,os};break mergeSearch;}
+            }
+          }
+        }
+      }
+      if(mergeCandidate){
+        const {aId,bId,sceneNum,p:cp,os:cos}=mergeCandidate;
+        _mergeSuggestion={
+          label:`This revision split Scene ${sceneNum} back into two — merge them again like before?`,
+          apply:()=>{
+            const a=SL.find(l=>l.id===aId),b=SL.find(l=>l.id===bId);
+            if(!a||!b)return;
+            b.sceneStart=false;
+            recomputeScenes();
+            const mergedScene=a.scene;
+            // Carry the old scene's Scene Work into the now-merged scene, same
+            // as a normal exact match would have — via setWork directly, since
+            // this runs long after doPDF's own one-shot carryover already
+            // persisted (applyCarry's newWork object is long since written).
+            const oldChars=[...new Set(cp.oldLines.filter(l=>l.scene===cos).map(l=>l.char))];
+            for(const c of oldChars){
+              const oldEntry=cp.source.work&&cp.source.work[workKey(cos,c)];
+              if(oldEntry)setWork(mergedScene,c,oldEntry);
+            }
+            const oldFirst=cp.oldLines.find(l=>l.scene===cos&&l._sceneFirst);
+            const newFirst=SL.find(l=>l.scene===mergedScene&&l._sceneFirst);
+            if(oldFirst&&oldFirst.sceneLabel&&newFirst)newFirst.sceneLabel=oldFirst.sceneLabel;
+            buildScript();
+            saveCurrent();
+          }
+        };
       }
       const scriptChanged=newSceneCount>0;
       // Story Analysis is whole-script, not per-scene — it can't be verified
@@ -1762,6 +1841,7 @@ function buildScript(){
   flushSceneEdit();
   _charMap={};
   renderMergeUndoBanner();
+  renderMergeSuggestBanner();
   buildSceneTabs();
   const c=document.getElementById('slines');c.innerHTML='';
   SL.forEach(l=>{
