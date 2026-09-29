@@ -1468,22 +1468,7 @@ async function doPDF(file){
       // make — offer it back: if two ADJACENT still-unmatched new scenes,
       // concatenated, reproduce an unclaimed old scene's fingerprint exactly,
       // surface ONE suggestion (pairs only, first found) to accept or decline.
-      let mergeCandidate=null;
-      mergeSearch: for(const p of prepared){
-        for(const os of p.oldScenes){
-          if(p.claimed.has(os))continue;
-          const oldFp=sceneFingerprint(p.oldLines,os);
-          for(let k=0;k<stillUnmatched.length-1;k++){
-            const a=stillUnmatched[k],b=stillUnmatched[k+1];
-            if(b!==a+1)continue;
-            const combinedFp=[a,b].flatMap(n=>SL.filter(l=>l.scene===n)).map(l=>norm(l.text)).join('|');
-            if(combinedFp===oldFp){
-              const aFirst=SL.find(l=>l.scene===a&&l._sceneFirst),bFirst=SL.find(l=>l.scene===b&&l._sceneFirst);
-              if(aFirst&&bFirst){mergeCandidate={aId:aFirst.id,bId:bFirst.id,sceneNum:a,p,os};break mergeSearch;}
-            }
-          }
-        }
-      }
+      const mergeCandidate=findMergeCandidate(SL,prepared,stillUnmatched);
       if(mergeCandidate){
         const {aId,bId,sceneNum,p:cp,os:cos}=mergeCandidate;
         _mergeSuggestion={
@@ -1779,6 +1764,30 @@ function sceneNameFor(scene){const l=SL.find(x=>x.scene===scene&&x._sceneFirst);
 // breakdown to a DIFFERENT scene that just happens to be similar.
 function sceneFingerprint(lines,scene){
   return lines.filter(l=>l.scene===scene).map(l=>norm(l.text)).join('|');
+}
+// Pure detection for the merge-reversion suggestion in doPDF()'s revision
+// carryover: does an unclaimed old scene's fingerprint equal what two
+// ADJACENT still-unmatched new scenes would look like concatenated? Pairs
+// only, first match found. Split out from doPDF() specifically so it's a
+// plain function of its inputs — no DOM, no closures over the upload's own
+// state — and testable on its own (see test-scenes.mjs).
+function findMergeCandidate(newLines,prepared,stillUnmatched){
+  for(const p of prepared){
+    for(const os of p.oldScenes){
+      if(p.claimed.has(os))continue;
+      const oldFp=sceneFingerprint(p.oldLines,os);
+      for(let k=0;k<stillUnmatched.length-1;k++){
+        const a=stillUnmatched[k],b=stillUnmatched[k+1];
+        if(b!==a+1)continue;
+        const combinedFp=[a,b].flatMap(n=>newLines.filter(l=>l.scene===n)).map(l=>norm(l.text)).join('|');
+        if(combinedFp===oldFp){
+          const aFirst=newLines.find(l=>l.scene===a&&l._sceneFirst),bFirst=newLines.find(l=>l.scene===b&&l._sceneFirst);
+          if(aFirst&&bFirst)return{aId:aFirst.id,bId:bFirst.id,sceneNum:a,p,os};
+        }
+      }
+    }
+  }
+  return null;
 }
 // Inline rename in place of the header text — no native prompt() dialog.
 // Enter or clicking away commits, Escape cancels.

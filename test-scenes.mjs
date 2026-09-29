@@ -52,11 +52,12 @@ const scope = new Function(`
   ${extractFn('norm')}
   ${extractFn('cleanChar')}
   ${extractFn('sceneFingerprint')}
+  ${extractFn('findMergeCandidate')}
   let SL;
   ${extractFn('recomputeScenes')}
-  return { norm, cleanChar, sceneFingerprint, recomputeScenes, setSL: v => SL = v, getSL: () => SL };
+  return { norm, cleanChar, sceneFingerprint, findMergeCandidate, recomputeScenes, setSL: v => SL = v, getSL: () => SL };
 `)();
-const { cleanChar, sceneFingerprint, setSL, getSL, recomputeScenes } = scope;
+const { cleanChar, sceneFingerprint, findMergeCandidate, setSL, getSL, recomputeScenes } = scope;
 
 let pass = 0, fail = 0;
 function t(desc, actual, expected) {
@@ -123,6 +124,49 @@ t('sceneFingerprint: punctuation/case noise is ignored (built on norm())',
   sceneFingerprint(scriptA, 1) === sceneFingerprint([{ scene: 1, text: 'VITALS STABLE' }, { scene: 1, text: "OKAY?" }], 1), true);
 t('sceneFingerprint: different scenes of the same script never collide',
   sceneFingerprint(scriptA, 1) === sceneFingerprint(scriptA, 2), false);
+
+// --- findMergeCandidate(): the merge-reversion-suggestion detector. Feeds
+// the "This revision split Scene N back into two — merge them again like
+// before?" banner — a wrong positive here would offer to merge scenes that
+// were never actually one, a wrong negative would silently drop the
+// suggestion the whole feature exists for. ---
+function nl(id, scene, sceneFirst, text) { return { id, scene, _sceneFirst: sceneFirst, text }; }
+function ol(scene, sceneFirst, text) { return { scene, _sceneFirst: sceneFirst, text }; }
+
+const newLinesBasic = [
+  nl(0, 1, true, 'Vitals stable.'),
+  nl(1, 1, false, 'Okay.'),
+  nl(2, 2, true, 'I accepted the job.'),
+  nl(3, 2, false, 'Fuck. Thats soon.'),
+  nl(4, 3, true, 'Come with me.'),
+];
+// This old script had scene 1 merged (originally two scenes' worth of
+// dialogue) and a separate scene 2 that a normal exact match already
+// claimed before findMergeCandidate ever runs — mirroring doPDF's real
+// call order (it only looks at scenes the earlier exact/fuzzy passes left).
+const oldLinesMerged = [
+  ol(1, true, 'Vitals stable.'), ol(1, false, 'Okay.'), ol(1, false, 'I accepted the job.'), ol(1, false, 'Fuck. Thats soon.'),
+  ol(2, true, 'Come with me.'),
+];
+const preparedBasic = [{ oldLines: oldLinesMerged, oldScenes: [1, 2], claimed: new Set([2]) }];
+
+const found = findMergeCandidate(newLinesBasic, preparedBasic, [1, 2]);
+t('findMergeCandidate: detects two adjacent unmatched new scenes that recombine into an old merged scene',
+  found && { aId: found.aId, bId: found.bId, sceneNum: found.sceneNum },
+  { aId: 0, bId: 2, sceneNum: 1 });
+
+t('findMergeCandidate: no candidate when the two unmatched scenes aren\'t adjacent (1 and 3, skipping 2)',
+  findMergeCandidate(newLinesBasic, preparedBasic, [1, 3]), null);
+
+t('findMergeCandidate: no candidate when the content genuinely differs (never force a false merge)',
+  findMergeCandidate(
+    [nl(0, 1, true, 'Totally different line.'), nl(1, 2, true, 'Also different.')],
+    preparedBasic, [1, 2]
+  ), null);
+
+t('findMergeCandidate: an already-claimed old scene is never offered, even if its text would otherwise match',
+  findMergeCandidate(newLinesBasic, [{ oldLines: oldLinesMerged, oldScenes: [1, 2], claimed: new Set([1, 2]) }], [1, 2]),
+  null);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
