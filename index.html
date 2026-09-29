@@ -2030,6 +2030,13 @@ function mdToHtml(md){
 // "High demand"/overloaded errors are usually gone within a few seconds —
 // worth two quick silent retries before bothering the actor with it at all.
 function isOverloadMsg(msg){return /high demand|overloaded|please try again/i.test(msg||'');}
+// Distinct from overload: a transient "busy" error is worth retrying, but a
+// flat 0-quota key never will be no matter how many times you hit it — the
+// only real move is switching that script to paid. Confirmed live this was
+// falling into the generic error branch with no action at all: isOverloadMsg
+// doesn't match "no quota"/"limit 0" wording, so wkRenderError never showed
+// the same "Switch to paid & retry" button the overload case already gets.
+function isQuotaMsg(msg){return /no quota|quota|limit: ?0/i.test(msg||'');}
 // Not real prediction (no provider exposes capacity in advance) — just her
 // own recent hits, so the free tile can honestly say "this has been flaky
 // in the last hour" instead of pretending to see the future.
@@ -2079,7 +2086,7 @@ async function craftLLM(system,messages,forceLight,route,onRetry,_retries){
           return craftLLM(system,messages,forceLight,route,onRetry,(_retries||0)+1);
         }
       }
-      const err=new Error(msg);err.overload=isOverloadMsg(msg);err.provider='gemini';throw err;
+      const err=new Error(msg);err.overload=isOverloadMsg(msg);err.noQuota=isQuotaMsg(msg);err.provider='gemini';throw err;
     }
     const d=await r.json();
     return (((d.candidates||[])[0]||{}).content||{}).parts&&d.candidates[0].content.parts[0].text||'';
@@ -2178,6 +2185,15 @@ function wkRetryStatus(el,attempt,max,wait){
 function wkRenderError(el,e,retryFn){
   if(e.overload&&e.provider==='gemini'&&curName){
     el.innerHTML='<span style="color:var(--accent)">⚠ Gemini\'s still overloaded after retrying.</span> ';
+    const btn=document.createElement('button');
+    btn.className='ghost';btn.textContent='⚡ Switch to paid & retry';
+    btn.onclick=()=>{toggleScriptRoute(curName);retryFn();};
+    el.appendChild(btn);
+  } else if(e.noQuota&&e.provider==='gemini'&&curName){
+    // Unlike overload, retrying does nothing here — a 0-quota key stays 0 no
+    // matter how many times you hit it. Switching the script to paid is the
+    // only real move, so that's the one button, no retry offered.
+    el.innerHTML='<span style="color:var(--accent)">⚠ This key has no free Gemini quota left.</span> ';
     const btn=document.createElement('button');
     btn.className='ghost';btn.textContent='⚡ Switch to paid & retry';
     btn.onclick=()=>{toggleScriptRoute(curName);retryFn();};
