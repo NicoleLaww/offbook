@@ -1899,7 +1899,7 @@ VOICE: same direct, no-hedging voice as scene work — banned: "perhaps," "one c
 OUTPUT (use ## headers for each section, keep everything terse):
 1. GIVEN CIRCUMSTANCES — who these people are to each other, the world's rules, era/genre/register. Established ONCE here so the per-scene work doesn't have to re-derive it.
 2. CONTROLLING IDEA — one sentence: the value-and-cause this piece is built to prove (e.g. "X triumphs because Y"). Flag as your best inference if the sides are too partial to be sure.
-3. VALUE-CHARGE MAP — one line per scene: what value is at stake for HER character in that scene, and which way it swings (+ to -, or - to +). Gives her the shape of the whole ride at a glance.
+3. VALUE-CHARGE MAP — one line per scene: what value is at stake for HER character in that scene, and how it actually moves. A clean + to - or - to + swing is only ONE possible shape — plenty of scenes are a knot, not a swing: she can deflect before she risks something, get hit and parry instead of collapsing, or end ambivalent/unresolved rather than settled. Name the real shape, including a reversal that lands on the opposite charge from what the setup implies. Don't force a tidy binary onto a scene that doesn't have one — a wrong clean swing is a worse note than an honest "mixed" or "unresolved." Gives her the shape of the whole ride at a glance.
 4. THE BIG GAP — across the whole packet, the single place this character expects one thing and the world hands her another — where she gets caught out and has to reveal who she really is, underneath the plan.
 5. HOW TO PLAY THE SHAPE — name where this piece sits on the spectrum from big/external/causality-driven to quiet/internal/values-driven, translated into one playable note: what that means for scale, not film-school jargon.
 6. TARGET THROUGHLINE — who or what this character is really aiming at across the piece (it can shift scene to scene) — the throughline underneath the scene-by-scene targets.
@@ -2269,6 +2269,10 @@ function loadThread(){
   document.getElementById('wk-brk').value=draft.brk||'';
   document.getElementById('wk-inst').value=draft.inst||'';
   document.getElementById('wk-setup').style.display=has?'none':'block';
+  // The checklist asks for ONE playable verb / ONE structural position for
+  // the beat you're about to play — unanswerable for a whole multi-scene
+  // packet, so it only makes sense once a specific scene is picked.
+  document.getElementById('wk-checklist').style.display=scene==='all'?'none':'block';
   document.getElementById('wk-followup').style.display=has?'block':'none';
   const sec=document.getElementById('wk-secondary');if(sec)sec.style.display=has?'flex':'none';
   document.getElementById('wk-go').textContent=has?'SEND →':'BREAK IT DOWN';
