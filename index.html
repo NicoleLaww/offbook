@@ -1653,6 +1653,13 @@ function metaHtml(l,p){return `${ctxHtml(l.before)}<div class="${p}-meta" style=
 
 // SCRIPT VIEW
 let _sceneFilter='all'; // 'all' or a scene number — lets the actor view one scene at a time
+// Read-Through/Rehearse have no scene picker of their own (unlike Audio
+// Export's am-scene) — they always ran the WHOLE script's marked lines even
+// while the script view was filtered to one scene, confirmed live: filter to
+// Scene 1, mark lines in both scenes, hit Rehearse, and Scene 2 lines show up
+// too. This is the one thing that scopes both to whichever scene is filtered,
+// same as Audio Export already does via getAudioScene().
+function currentSceneLines(){return _sceneFilter==='all'?SL:SL.filter(l=>l.scene===_sceneFilter);}
 // A scene's display name: whatever the actor renamed it to, else the detected
 // slugline, else blank. One source of truth used by the divider, the tabs,
 // and both the Scene work and audio scene pickers, so a rename shows up everywhere.
@@ -1804,11 +1811,17 @@ function toggleCut(id){
 }
 function clearMine(){SL.forEach(l=>l.isMine=false);document.querySelectorAll('.sl.mine').forEach(el=>el.classList.remove('mine'));updCount();}
 function updCount(){
-  const n=SL.filter(l=>l.isMine).length;
+  // Rehearse/Read-Through are now scoped to the filtered scene (see
+  // currentSceneLines), so the count and their enabled state must match —
+  // otherwise the bar could say "3 lines selected" while the filtered scene
+  // has none, and clicking REHEARSE would silently do nothing. Audio Export
+  // keeps its own global count: it has its own scene picker in the modal
+  // (am-scene), so it isn't limited to whatever's currently filtered here.
+  const n=currentSceneLines().filter(l=>l.isMine).length;
   document.getElementById('mcount').textContent=n;
   document.getElementById('rehbtn').disabled=n===0;
   document.getElementById('readbtn').disabled=n===0;
-  const ab=document.getElementById('audiobtn');if(ab)ab.disabled=n===0;
+  const ab=document.getElementById('audiobtn');if(ab)ab.disabled=SL.filter(l=>l.isMine).length===0;
   saveCurrent();
 }
 
@@ -2308,11 +2321,15 @@ function buildFirstMessage(scene,char,brk,inst){
     +(storyReply?`\n\n<story>\n${_escTags(storyReply)}\n</story>`:'')
     +`\n\n<scene>\n${_escTags(sceneText(scene))}\n</scene>`;
 }
-// Set while any Scene Work request is in flight — checked by the PWA's
-// safeToReload() so an auto-update can't yank the page mid-request, and used
-// here to lock the secondary action row so Copy/Redo/Start Over can't race
-// a request that hasn't landed yet (only wk-go used to be disabled).
-let _wkJobRunning=false;
+// Counts Scene Work requests in flight — checked (as a truthy/falsy value,
+// 0 vs >0) by the PWA's safeToReload() so an auto-update can't yank the page
+// mid-request, and used here to lock the secondary action row so Copy/Redo/
+// Start Over can't race a request that hasn't landed yet. A plain boolean
+// broke this the moment two jobs could overlap: a quick sendWork() finishing
+// would set it back to false while generateAllScenes()'s own multi-scene
+// batch was still running, silently defeating the exact protection this
+// exists for — confirmed live (batch mid-flight, flag already false).
+let _wkJobRunning=0;
 function setWkButtonsBusy(busy){
   document.getElementById('wk-go').disabled=busy;
   document.querySelectorAll('#wk-secondary button').forEach(b=>b.disabled=busy);
@@ -2321,7 +2338,7 @@ async function sendWork(){
   const st=document.getElementById('wk-status');
   const scene=getWkScene(),char=document.getElementById('wk-char').value;
   let thread=getWork(scene,char);
-  _wkJobRunning=true;
+  _wkJobRunning++;
   setWkButtonsBusy(true);
   const isFreshBreakdown=!thread||!thread.messages||!thread.messages.length;
   try{
@@ -2334,7 +2351,7 @@ async function sendWork(){
       document.getElementById('wk-followup').style.display='block';
     } else {
       const msg=document.getElementById('wk-msg').value.trim();
-      if(!msg){_wkJobRunning=false;setWkButtonsBusy(false);return;}
+      if(!msg){_wkJobRunning--;setWkButtonsBusy(false);return;}
       thread.messages.push({role:'user',content:msg});
       document.getElementById('wk-msg').value='';
     }
@@ -2353,7 +2370,7 @@ async function sendWork(){
     st.textContent='';
     if(isFreshBreakdown)maybeAutoGenre(); // fire-and-forget — best-effort, never blocks or overwrites a manual tag
   }catch(e){wkRenderError(st,e,sendWork);}
-  _wkJobRunning=false;
+  _wkJobRunning--;
   setWkButtonsBusy(false);
 }
 // Piggybacks on a breakdown you're already running rather than firing its
@@ -2405,13 +2422,18 @@ async function generateAllScenes(){
   const scenes=[...new Set(SL.map(l=>l.scene))].filter(s=>s!=='all');
   const btn=document.getElementById('wk-genall'),st=document.getElementById('wk-status');
   _genAllStop=false;
-  _wkJobRunning=true;
+  _wkJobRunning++;
   if(btn){btn.textContent='⏹ Stop generating';btn.onclick=stopGenerateAll;}
   // Lock scene/char while this runs — it's silently working on THIS pair in
   // the background; switching away mid-run used to leave the status line and
   // this very button showing/controlling a run for whatever you'd switched to.
   const sceneSel=document.getElementById('wk-scene'),charSel=document.getElementById('wk-char');
   sceneSel.disabled=true;charSel.disabled=true;
+  // Also lock Copy/Redo/Start Over/Send — confirmed live that without this,
+  // "Start Over" on the whole-script Story Analysis mid-batch silently
+  // deletes the <story> context every not-yet-run scene in THIS SAME batch
+  // reads via buildFirstMessage(), degrading them with no visible warning.
+  setWkButtonsBusy(true);
   let failed=[],stoppedAt=null;
   for(let i=0;i<scenes.length;i++){
     if(_genAllStop){stoppedAt=i;break;}
@@ -2430,7 +2452,8 @@ async function generateAllScenes(){
     }
   }
   sceneSel.disabled=false;charSel.disabled=false;
-  _wkJobRunning=false;
+  setWkButtonsBusy(false);
+  _wkJobRunning--;
   if(btn){btn.disabled=false;btn.textContent='🎬 Generate all scene breakdowns';btn.onclick=generateAllScenes;}
   loadThread(); // clears wk-status as a side effect — must run BEFORE the summary below, not after
   st.textContent = stoppedAt!==null
@@ -2821,7 +2844,7 @@ async function makeAudio(){
 }
 
 function goRead(){
-  if(!SL.filter(l=>l.isMine).length)return;
+  if(!currentSceneLines().filter(l=>l.isMine).length)return;
   buildReadLines();
   show('read-screen');
   window.scrollTo(0,0);
@@ -2829,7 +2852,7 @@ function goRead(){
 
 function buildReadLines(){
   const c=document.getElementById('read-lines');c.innerHTML='';
-  SL.filter(l=>!l.cut).forEach(l=>{
+  currentSceneLines().filter(l=>!l.cut).forEach(l=>{
     const mine=l.isMine;
     const el=document.createElement('div');
     el.className='rd'+(mine?' mine blacked':'');
@@ -2848,7 +2871,7 @@ function buildReadLines(){
 
 // REHEARSAL
 function goReh(){
-  RL=SL.filter(l=>l.isMine&&!l.cut);if(!RL.length)return;
+  RL=currentSceneLines().filter(l=>l.isMine&&!l.cut);if(!RL.length)return;
   cleared=new Array(RL.length).fill(false);
   cur=0;nCleared=0;passed=false;mode='word';
   document.querySelectorAll('.mp').forEach((b,i)=>b.classList.toggle('on',i===1));
@@ -2858,7 +2881,7 @@ function goReh(){
 
 function buildReh(){
   const c=document.getElementById('rlines');c.innerHTML='';
-  SL.filter(l=>!l.cut).forEach(l=>{
+  currentSceneLines().filter(l=>!l.cut).forEach(l=>{
     const ri=RL.findIndex(r=>r.id===l.id);
     const mine=l.isMine;
     const isCur=mine&&ri===cur;
