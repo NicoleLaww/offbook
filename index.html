@@ -332,6 +332,10 @@
     <select id="role-select" onchange="selectRole(this.value)" style="flex:1;min-width:160px"><option value="">I'm playing…</option></select>
     <span class="kfree">free — marks every line for that character</span>
   </div>
+  <div id="merge-undo-banner" style="display:none;justify-content:space-between;align-items:center;gap:10px;background:rgba(167,139,250,.08);border:1px solid var(--accent);border-radius:8px;padding:10px 12px;font-size:12px;color:var(--accent);margin-bottom:16px">
+    <span>Scenes merged.</span>
+    <button class="ghost" onclick="undoMerge()">↩ Undo merge</button>
+  </div>
   <div id="scene-tabs" class="scene-tabs" style="display:none"></div>
   <div id="slines"></div>
   <div class="bot">
@@ -468,7 +472,7 @@
 <div id="reh-screen">
   <div class="rh">
     <div class="logo">OFF<span>BOOK</span></div>
-    <div style="display:flex;gap:10px;align-items:center">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
       <div class="mps">
         <button class="mp" onclick="setMode('intention',this)">Intention</button>
         <button class="mp on" onclick="setMode('word',this)">Word</button>
@@ -648,6 +652,7 @@ function loadScript(name){
   const s=loadSaved().find(x=>x.name===name);if(!s)return;
   SL=s.lines.map((l,i)=>({...l,id:i,isMine:!!l.isMine}));
   recomputeScenes();
+  _lastMerge=null; // a fresh line-id set — any pending undo-merge pointed at the PREVIOUS script's lines
   curName=name;
   document.getElementById('fname').textContent=name;
   updateScriptRouteBadge();
@@ -682,14 +687,37 @@ function recomputeScenes(){
     l._sceneFirst=starts;
   });
 }
+// Merge (start -> not-start) is a plain boolean flip — no data is deleted —
+// but unlike a cut line's ↺ restore sitting right on that line, the only way
+// back used to be hunting down this exact line, now buried among however many
+// just got folded into the scene above it, and clicking "+ new scene" on it
+// again. _lastMerge remembers it so one click (see undoMerge) reverses the
+// EXACT merge just made; a split, or merging something else, replaces it.
+let _lastMerge=null;
 function toggleSceneStart(id){
   const idx=SL.findIndex(l=>l.id===id);
   if(idx<=0)return; // the first line is always scene 1's start — nothing to toggle
-  SL[idx].sceneStart=!SL[idx].sceneStart;
+  const wasStart=SL[idx].sceneStart;
+  SL[idx].sceneStart=!wasStart;
+  _lastMerge=wasStart?{id}:null;
   recomputeScenes();
   if(_sceneFilter!=='all' && !SL.some(l=>l.scene===_sceneFilter))_sceneFilter='all';
   buildScript();
   saveCurrent();
+}
+function undoMerge(){
+  if(!_lastMerge)return;
+  const idx=SL.findIndex(l=>l.id===_lastMerge.id);
+  _lastMerge=null;
+  if(idx<=0){buildScript();return;}
+  SL[idx].sceneStart=true;
+  recomputeScenes();
+  buildScript();
+  saveCurrent();
+}
+function renderMergeUndoBanner(){
+  const b=document.getElementById('merge-undo-banner');if(!b)return;
+  b.style.display=_lastMerge?'flex':'none';
 }
 function delScript(name){
   if(!confirm('Delete saved script "'+name+'"?'))return;
@@ -1298,6 +1326,7 @@ async function doPDF(file){
 
     SL=merged.map((l,i)=>({...l,text:cleanText(l.text),before:cleanText(l.before||''),after:cleanText(l.after||''),id:i,isMine:false}));
     recomputeScenes();
+    _lastMerge=null; // a fresh line-id set — any pending undo-merge pointed at the PREVIOUS upload's lines
 
     // Revision carryover — a re-upload (pink/blue pages) used to either
     // silently reattach old Scene Work under the WRONG new scene number
@@ -1732,6 +1761,7 @@ function setSceneFilter(s){_sceneFilter=s==='all'?'all':Number(s);buildScript();
 function buildScript(){
   flushSceneEdit();
   _charMap={};
+  renderMergeUndoBanner();
   buildSceneTabs();
   const c=document.getElementById('slines');c.innerHTML='';
   SL.forEach(l=>{
@@ -1809,7 +1839,12 @@ function toggleCut(id){
   buildScript();
   saveCurrent();
 }
-function clearMine(){SL.forEach(l=>l.isMine=false);document.querySelectorAll('.sl.mine').forEach(el=>el.classList.remove('mine'));updCount();}
+// A native <select> only fires onchange when its value actually CHANGES —
+// Clear used to leave "role-select" still showing the last-picked character,
+// so picking that SAME character again from the dropdown silently did
+// nothing (confirmed live) until you picked a different one first. Resetting
+// the dropdown here means it always fires again on the very next pick.
+function clearMine(){SL.forEach(l=>l.isMine=false);document.querySelectorAll('.sl.mine').forEach(el=>el.classList.remove('mine'));const rs=document.getElementById('role-select');if(rs)rs.value='';updCount();}
 function updCount(){
   // Rehearse/Read-Through are now scoped to the filtered scene (see
   // currentSceneLines), so the count and their enabled state must match —
