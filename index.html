@@ -631,27 +631,31 @@ function writeSaved(arr){
 // (oldest survives longest since rest.unshift puts the current one first),
 // or null if nothing was evicted — so a fresh upload can tell you it happened
 // instead of it silently disappearing from the list.
+// Pure: computes the new saved-scripts array for one save — no DOM, no
+// storage, just the array transform — so it's testable on its own (see
+// test-scenes.mjs). Spreads the existing record first so any field beyond
+// work/lines (genre, route, and whatever gets added next) survives a save
+// automatically. THIS spread is exactly what used to be a bare
+// {name,work,lines} rebuild on EVERY save — including the one buildScript()
+// fires on a plain Load — so a genre tag vanished the instant you opened the
+// very script you tagged. 500, not 30 — now backed by IndexedDB, not
+// localStorage's ~5-10MB ceiling, so the cap below is a sanity ceiling
+// against pathological growth, not the real constraint it used to be.
+function computeSavedUpdate(arr,name,lines,routeOverride){
+  const existing=arr.find(s=>s.name===name)||{};
+  const rest=arr.filter(s=>s.name!==name);
+  rest.unshift({...existing,name,work:existing.work||{},route:routeOverride||existing.route||'paid',lines:lines.map(l=>({char:l.char,direction:l.direction,text:l.text,before:l.before||'',after:l.after||'',isMine:!!l.isMine,cut:!!l.cut,sceneStart:!!l.sceneStart,sceneHeading:l.sceneHeading||'',sceneLabel:l.sceneLabel||'',carried:!!l.carried,carriedFrom:l.carriedFrom||'',carriedFuzzy:!!l.carriedFuzzy}))});
+  const evicted = rest.length>500 ? rest[500].name : null;
+  return {updated:rest.slice(0,500),evicted};
+}
 // routeOverride is passed ONLY by doPDF() at upload time (the moment the
 // actor explicitly picks confidential/public) — every other caller (line
-// toggles, cuts, scene renames) omits it, so the spread below just keeps
-// whatever route was last explicitly set instead of silently resetting it.
+// toggles, cuts, scene renames) omits it, so computeSavedUpdate's spread just
+// keeps whatever route was last explicitly set instead of silently resetting it.
 function saveCurrent(routeOverride){
   if(!curName||!SL.length)return null;
-  const arr=loadSaved();
-  // Spread the existing record first so any field beyond work/lines (genre,
-  // route, and whatever gets added next) survives a save automatically.
-  // Previously this rebuilt a bare {name,work,lines} object on EVERY save —
-  // including the one buildScript() fires on a plain Load — so a genre tag
-  // vanished the instant you opened the very script you tagged.
-  const existing=arr.find(s=>s.name===curName)||{};
-  const rest=arr.filter(s=>s.name!==curName);
-  rest.unshift({...existing,name:curName,work:existing.work||{},route:routeOverride||existing.route||'paid',lines:SL.map(l=>({char:l.char,direction:l.direction,text:l.text,before:l.before||'',after:l.after||'',isMine:!!l.isMine,cut:!!l.cut,sceneStart:!!l.sceneStart,sceneHeading:l.sceneHeading||'',sceneLabel:l.sceneLabel||'',carried:!!l.carried,carriedFrom:l.carriedFrom||'',carriedFuzzy:!!l.carriedFuzzy}))});
-  // 500, not 30 — now backed by IndexedDB, not localStorage's ~5-10MB
-  // ceiling, so this is a sanity ceiling against pathological growth, not
-  // the real constraint it used to be. No realistic multi-year acting
-  // career gets near it.
-  const evicted = rest.length>500 ? rest[500].name : null;
-  writeSaved(rest.slice(0,500));
+  const {updated,evicted}=computeSavedUpdate(loadSaved(),curName,SL,routeOverride);
+  writeSaved(updated);
   renderSaved();
   return evicted;
 }
@@ -1445,22 +1449,12 @@ async function doPDF(file){
       // (carriedFuzzy) so this trade — catching an OCR'd-slightly-differently
       // revision, at the cost of occasionally guessing — stays visible, not silent.
       const FUZZY_THRESHOLD=0.92;
-      const sceneTokens=(lines,scene)=>tokenize(lines.filter(l=>l.scene===scene).map(l=>l.text).join(' ')).map(t=>t.n);
       const stillUnmatched=[];
       for(const ns of unmatched){
         const nsTokens=sceneTokens(SL,ns);
         if(!nsTokens.length){newSceneCount++;stillUnmatched.push(ns);continue;}
-        let best=null,bestRatio=0;
-        for(const p of prepared){
-          for(const os of p.oldScenes){
-            if(p.claimed.has(os))continue;
-            const osTokens=sceneTokens(p.oldLines,os);
-            if(!osTokens.length)continue;
-            const ratio=bestMatches(nsTokens,osTokens,true).length/Math.max(nsTokens.length,osTokens.length);
-            if(ratio>bestRatio){bestRatio=ratio;best={p,os};}
-          }
-        }
-        if(best&&bestRatio>=FUZZY_THRESHOLD)applyCarry(best.p,best.os,ns,true);
+        const best=bestFuzzySceneMatch(nsTokens,prepared);
+        if(best&&best.ratio>=FUZZY_THRESHOLD)applyCarry(best.p,best.os,ns,true);
         else {newSceneCount++;stillUnmatched.push(ns);}
       }
       // Merge-reversion suggestion. A scene an actor manually merged (see
@@ -1776,6 +1770,33 @@ function sceneNameFor(scene){const l=SL.find(x=>x.scene===scene&&x._sceneFirst);
 // breakdown to a DIFFERENT scene that just happens to be similar.
 function sceneFingerprint(lines,scene){
   return lines.filter(l=>l.scene===scene).map(l=>norm(l.text)).join('|');
+}
+// Word-overlap tokens for one scene — shared by the fuzzy carryover match
+// below, pulled out of doPDF's local scope so bestFuzzySceneMatch is a plain,
+// testable function of its inputs too.
+function sceneTokens(lines,scene){return tokenize(lines.filter(l=>l.scene===scene).map(l=>l.text).join(' ')).map(t=>t.n);}
+// Pure: the best fuzzy match (by bestMatches word-overlap ratio) for one new
+// scene's tokens among any unclaimed old scene across every candidate — used
+// by doPDF's revision-carryover fuzzy fallback, after the exact-fingerprint
+// pass leaves a scene unmatched (an OCR'd-slightly-differently revision, a
+// stray dropped line). Returns {p,os,ratio} for the single best candidate
+// found, regardless of whether it clears FUZZY_THRESHOLD (the caller decides
+// that), or null if nothing overlapped at all. Split out so the ratio math
+// itself is testable on its own: misattaching a whole scene's Scene Work to
+// the wrong scene is explicitly worse than a rehearsal false-pass, per the
+// comment on FUZZY_THRESHOLD in doPDF().
+function bestFuzzySceneMatch(nsTokens,prepared){
+  let best=null,bestRatio=0;
+  for(const p of prepared){
+    for(const os of p.oldScenes){
+      if(p.claimed.has(os))continue;
+      const osTokens=sceneTokens(p.oldLines,os);
+      if(!osTokens.length)continue;
+      const ratio=bestMatches(nsTokens,osTokens,true).length/Math.max(nsTokens.length,osTokens.length);
+      if(ratio>bestRatio){bestRatio=ratio;best={p,os,ratio};}
+    }
+  }
+  return best;
 }
 // Pure detection for the merge-reversion suggestion in doPDF()'s revision
 // carryover: does an unclaimed old scene's fingerprint equal what two

@@ -1,11 +1,12 @@
-// Regression tests for scene-boundary logic in index.html: recomputeScenes()
-// (the derive-scenes-from-sceneStart-flags engine everything else sits on —
-// the script view, Scene Work, Audio Export, and the merge/undo-merge pair
-// added this session all depend on it), sceneFingerprint() (what decides
-// whether a re-uploaded revision's scene matches an old saved one closely
-// enough to carry its Scene Work forward — a wrong match silently misattaches
-// one scene's breakdown to a different scene, worse than losing it outright),
-// and cleanChar() (character-name cleanup feeding line grouping/coloring).
+// Regression tests for scene-boundary and save/carryover logic in index.html:
+// recomputeScenes() (the derive-scenes-from-sceneStart-flags engine
+// everything else sits on), sceneFingerprint()/bestFuzzySceneMatch() (exact
+// and fuzzy matching deciding whether a re-uploaded revision's scene carries
+// its Scene Work forward — a wrong match silently misattaches one scene's
+// breakdown to a different scene, worse than losing it outright),
+// findMergeCandidate() (the merge-reversion suggestion), computeSavedUpdate()
+// (the exact spot a bare object rebuild once silently dropped a script's
+// genre tag on every save), and cleanChar() (character-name cleanup).
 //
 // No test framework, no build step — same shape as test-scorer.mjs, and for
 // the same reason: it extracts the ACTUAL current implementation straight out
@@ -53,11 +54,20 @@ const scope = new Function(`
   ${extractFn('cleanChar')}
   ${extractFn('sceneFingerprint')}
   ${extractFn('findMergeCandidate')}
+  ${extractFn('computeSavedUpdate')}
+  ${extractFn('tokenize')}
+  ${extractFn('lev')}
+  ${extractFn('wordsClose')}
+  ${extractFn('weq')}
+  ${extractFn('lcs')}
+  ${extractFn('bestMatches')}
+  ${extractFn('sceneTokens')}
+  ${extractFn('bestFuzzySceneMatch')}
   let SL;
   ${extractFn('recomputeScenes')}
-  return { norm, cleanChar, sceneFingerprint, findMergeCandidate, recomputeScenes, setSL: v => SL = v, getSL: () => SL };
+  return { norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, recomputeScenes, setSL: v => SL = v, getSL: () => SL };
 `)();
-const { cleanChar, sceneFingerprint, findMergeCandidate, setSL, getSL, recomputeScenes } = scope;
+const { cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, setSL, getSL, recomputeScenes } = scope;
 
 let pass = 0, fail = 0;
 function t(desc, actual, expected) {
@@ -167,6 +177,78 @@ t('findMergeCandidate: no candidate when the content genuinely differs (never fo
 t('findMergeCandidate: an already-claimed old scene is never offered, even if its text would otherwise match',
   findMergeCandidate(newLinesBasic, [{ oldLines: oldLinesMerged, oldScenes: [1, 2], claimed: new Set([1, 2]) }], [1, 2]),
   null);
+
+// --- computeSavedUpdate(): the exact spot a bare {name,work,lines} rebuild
+// once silently dropped a script's genre (and would have dropped route too)
+// on every save, including the one buildScript() fires on a plain Load. ---
+const dummyLine = { char: 'PEG', text: 'Vitals stable.', isMine: true, cut: false, sceneStart: true };
+
+{
+  const arr = [{ name: 'Script.pdf', genre: 'medical drama', route: 'free', work: { '1::PEG': { messages: ['x'] } }, lines: [] }];
+  const { updated } = computeSavedUpdate(arr, 'Script.pdf', [dummyLine], undefined);
+  t('computeSavedUpdate: saving new lines preserves an existing genre tag (the regression this guards)',
+    updated[0].genre, 'medical drama');
+  t('computeSavedUpdate: preserves existing route when no override is given',
+    updated[0].route, 'free');
+  t('computeSavedUpdate: preserves existing Scene Work untouched',
+    updated[0].work, { '1::PEG': { messages: ['x'] } });
+}
+{
+  const arr = [{ name: 'Script.pdf', genre: 'medical drama', route: 'free', work: {}, lines: [] }];
+  const { updated } = computeSavedUpdate(arr, 'Script.pdf', [dummyLine], 'paid');
+  t('computeSavedUpdate: an explicit routeOverride (doPDF, upload time) wins over the existing route',
+    updated[0].route, 'paid');
+}
+t('computeSavedUpdate: a brand-new script with no override defaults to paid (the safe choice)',
+  computeSavedUpdate([], 'New.pdf', [dummyLine], undefined).updated[0].route, 'paid');
+t('computeSavedUpdate: a saved line\'s optional fields default to empty string / false, never undefined',
+  computeSavedUpdate([], 'New.pdf', [{ char: 'X', text: 'hi' }], undefined).updated[0].lines[0],
+  { char: 'X', direction: undefined, text: 'hi', before: '', after: '', isMine: false, cut: false, sceneStart: false, sceneHeading: '', sceneLabel: '', carried: false, carriedFrom: '', carriedFuzzy: false });
+{
+  // 500 unrelated existing scripts + saving a new one = 501 -> the oldest
+  // (last in array order, since unshift always puts the current save first)
+  // gets evicted and the array is capped back to 500.
+  const many = Array.from({ length: 500 }, (_, i) => ({ name: `old-${i}.pdf`, lines: [] }));
+  const { updated, evicted } = computeSavedUpdate(many, 'New.pdf', [dummyLine], undefined);
+  t('computeSavedUpdate: stays capped at 500 scripts', updated.length, 500);
+  t('computeSavedUpdate: evicts the oldest (last-in-order) script once past the cap', evicted, 'old-499.pdf');
+}
+t('computeSavedUpdate: no eviction below the cap', computeSavedUpdate([{ name: 'a.pdf', lines: [] }], 'New.pdf', [dummyLine], undefined).evicted, null);
+
+// --- bestFuzzySceneMatch(): the fuzzy carryover fallback used only after an
+// exact sceneFingerprint match fails — misattaching a whole scene's Scene
+// Work to the wrong scene is explicitly worse than a rehearsal false-pass
+// (see doPDF's own comment on FUZZY_THRESHOLD, 0.92), so the ratio math
+// itself is worth pinning down, not just exercised live. ---
+function scene(n, text) { return { scene: n, text }; }
+const nsTokensFor = text => sceneTokens([scene(1, text)], 1);
+
+const baseText = 'the quick brown fox jumps over the lazy dog near the old fence'; // 13 words
+const oneWordChanged = 'the quick brown fox jumps over the lazy cat near the old fence'; // dog -> cat, not fuzzy-close
+const twoWordsChanged = 'the quick brown fox jumps over the lazy cat near the new fence'; // + old -> new
+
+t('bestFuzzySceneMatch: identical text is a perfect (1.0) match',
+  bestFuzzySceneMatch(nsTokensFor(baseText), [{ oldLines: [scene(1, baseText)], oldScenes: [1], claimed: new Set() }]).ratio, 1);
+
+const oneWordResult = bestFuzzySceneMatch(nsTokensFor(oneWordChanged), [{ oldLines: [scene(1, baseText)], oldScenes: [1], claimed: new Set() }]);
+t('bestFuzzySceneMatch: one non-fuzzy-close word swapped in 13 lands just above the 0.92 fuzzy-carryover bar (12/13 ≈ 0.923)',
+  oneWordResult.ratio >= 0.92, true);
+
+const twoWordsResult = bestFuzzySceneMatch(nsTokensFor(twoWordsChanged), [{ oldLines: [scene(1, baseText)], oldScenes: [1], claimed: new Set() }]);
+t('bestFuzzySceneMatch: two words swapped in 13 falls below the 0.92 bar (11/13 ≈ 0.846) — the caller would correctly reject this',
+  twoWordsResult.ratio >= 0.92, false);
+
+t('bestFuzzySceneMatch: an already-claimed old scene is never offered',
+  bestFuzzySceneMatch(nsTokensFor(baseText), [{ oldLines: [scene(1, baseText)], oldScenes: [1], claimed: new Set([1]) }]), null);
+
+t('bestFuzzySceneMatch: nothing overlapping at all returns null, not a false-positive scrape',
+  bestFuzzySceneMatch(nsTokensFor(baseText), [{ oldLines: [scene(1, 'completely unrelated dialogue about something else')], oldScenes: [1], claimed: new Set() }]), null);
+
+t('bestFuzzySceneMatch: picks the higher-ratio candidate among several old scenes',
+  bestFuzzySceneMatch(nsTokensFor(baseText), [{
+    oldLines: [scene(1, 'completely unrelated dialogue about something else'), scene(2, baseText)],
+    oldScenes: [1, 2], claimed: new Set()
+  }]).os, 2);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
