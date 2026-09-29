@@ -1351,6 +1351,12 @@ async function doPDF(file){
     recomputeScenes();
     _lastMerge=null; // a fresh line-id set — any pending undo-merge pointed at the PREVIOUS upload's lines
     _mergeSuggestion=null; // ditto — re-set below only if this upload's own carryover pass finds one
+    // A scene number filtered from a PREVIOUS script (set via the scene tabs,
+    // never reset just by leaving via "← Scripts") could otherwise carry
+    // straight into this brand new SL — confirmed live: filter to Scene 3,
+    // go back, upload a 2-scene script, land on a completely blank view with
+    // no active tab and no explanation, since nothing here has scene 3.
+    _sceneFilter='all';
 
     // Revision carryover — a re-upload (pink/blue pages) used to either
     // silently reattach old Scene Work under the WRONG new scene number
@@ -1491,6 +1497,12 @@ async function doPDF(file){
             const oldFirst=cp.oldLines.find(l=>l.scene===cos&&l._sceneFirst);
             const newFirst=SL.find(l=>l.scene===mergedScene&&l._sceneFirst);
             if(oldFirst&&oldFirst.sceneLabel&&newFirst)newFirst.sceneLabel=oldFirst.sceneLabel;
+            // Same guard toggleSceneStart() uses for a manual merge — confirmed
+            // live that without it, accepting this while filtered to a scene
+            // number the merge just renumbered away left the whole script view
+            // blank (no lines, no active tab, no explanation) instead of
+            // falling back to "All".
+            if(_sceneFilter!=='all' && !SL.some(l=>l.scene===_sceneFilter))_sceneFilter='all';
             buildScript();
             saveCurrent();
           }
