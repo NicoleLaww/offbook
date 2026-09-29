@@ -48,6 +48,15 @@ function extractFn(name) {
   }
   return src.slice(start, end);
 }
+// Same idea as extractFn but for a single-statement `const NAME=...;` — used
+// for FREE_RETRY_BACKOFF, which nextRetryDecision() closes over.
+function extractConst(name) {
+  const startMarker = `const ${name}=`;
+  const start = src.indexOf(startMarker);
+  if (start === -1) throw new Error(`Could not find const ${name} in index.html — renamed or moved?`);
+  const end = src.indexOf(';', start) + 1;
+  return src.slice(start, end);
+}
 
 const scope = new Function(`
   ${extractFn('norm')}
@@ -66,11 +75,13 @@ const scope = new Function(`
   ${extractFn('carryLineFlags')}
   ${extractFn('isOverloadMsg')}
   ${extractFn('isQuotaMsg')}
+  ${extractConst('FREE_RETRY_BACKOFF')}
+  ${extractFn('nextRetryDecision')}
   let SL;
   ${extractFn('recomputeScenes')}
-  return { norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, recomputeScenes, setSL: v => SL = v, getSL: () => SL };
+  return { norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, recomputeScenes, setSL: v => SL = v, getSL: () => SL };
 `)();
-const { cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, setSL, getSL, recomputeScenes } = scope;
+const { cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, setSL, getSL, recomputeScenes } = scope;
 
 let pass = 0, fail = 0;
 function t(desc, actual, expected) {
@@ -309,6 +320,29 @@ t('isQuotaMsg: matches Google\'s real raw "limit: 0" wording', isQuotaMsg('You e
 t('isQuotaMsg: does not match an overload error (the two must stay mutually exclusive)',
   isQuotaMsg('The model is overloaded. Please try again later.'), false);
 t('isQuotaMsg: does not match an unrelated generic error', isQuotaMsg('Invalid API key.'), false);
+
+// --- nextRetryDecision(): craftLLM's free-tier queue — "retry or give up,
+// wait how long" for the one error type (overload) that's actually worth
+// retrying. A subtle bug here means either giving up too early (worse
+// experience than the queue was built for) or retrying forever (silently
+// eats the ~50s budget the comment on FREE_RETRY_BACKOFF promises, or worse,
+// never gives up at all). ---
+t('sanity: FREE_RETRY_BACKOFF is the 5-try queue the comments describe', FREE_RETRY_BACKOFF, [2000, 4000, 8000, 16000, 30000]);
+
+t('nextRetryDecision: first attempt (retries=0) waits the first backoff step and reports attempt 1 of 5',
+  nextRetryDecision(0, true), { wait: 2000, attempt: 1, max: 5 });
+t('nextRetryDecision: the very first real call passes _retries as undefined — treated the same as 0',
+  nextRetryDecision(undefined, true), { wait: 2000, attempt: 1, max: 5 });
+t('nextRetryDecision: a later attempt (retries=1) advances to the next backoff step',
+  nextRetryDecision(1, true), { wait: 4000, attempt: 2, max: 5 });
+t('nextRetryDecision: the last valid attempt (retries=4, the 5th try) uses the longest wait',
+  nextRetryDecision(4, true), { wait: 30000, attempt: 5, max: 5 });
+t('nextRetryDecision: once the queue is exhausted (retries=5) it gives up, not an infinite retry',
+  nextRetryDecision(5, true), null);
+t('nextRetryDecision: never retries past exhaustion even if called again (retries=6)',
+  nextRetryDecision(6, true), null);
+t('nextRetryDecision: a quota wall (not overload) never retries, even on the very first attempt — waiting can\'t fix a 0-quota key',
+  nextRetryDecision(0, false), null);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
