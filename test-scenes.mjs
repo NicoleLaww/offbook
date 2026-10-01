@@ -79,9 +79,12 @@ const scope = new Function(`
   ${extractFn('nextRetryDecision')}
   let SL;
   ${extractFn('recomputeScenes')}
-  return { norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, recomputeScenes, setSL: v => SL = v, getSL: () => SL };
+  let _scriptsCache;
+  ${extractFn('loadSaved')}
+  ${extractFn('checklistCount')}
+  return { norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, recomputeScenes, setSL: v => SL = v, getSL: () => SL, checklistCount, setScriptsCache: v => _scriptsCache = v };
 `)();
-const { cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, setSL, getSL, recomputeScenes } = scope;
+const { cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, setSL, getSL, recomputeScenes, checklistCount, setScriptsCache } = scope;
 
 let pass = 0, fail = 0;
 function t(desc, actual, expected) {
@@ -343,6 +346,31 @@ t('nextRetryDecision: never retries past exhaustion even if called again (retrie
   nextRetryDecision(6, true), null);
 t('nextRetryDecision: a quota wall (not overload) never retries, even on the very first attempt — waiting can\'t fix a 0-quota key',
   nextRetryDecision(0, false), null);
+
+// --- checklistCount(): feeds patternsDataCount(), the staleness check that
+// decides whether the Patterns feature thinks there's enough new data since
+// the last run to be worth re-querying. The comment above it in index.html
+// already flags the risk this guards: the count can look unchanged while the
+// underlying content changed (or vice versa), so the count itself needs to
+// be right, not just plausible. ---
+setScriptsCache([
+  { name: 'a.pdf', work: { '1::PEG': { checklist: { verb: 'push' } }, '2::PEG': { checklist: null } } },
+  { name: 'b.pdf', work: { '1::LIAM': { checklist: { verb: '', position: '', direction: '', gutCheck: '' } } } },
+  { name: 'c.pdf' },
+]);
+t('checklistCount: counts only entries with at least one filled checklist field, skipping null checklists, all-empty checklists, and scripts with no work at all',
+  checklistCount(), 1);
+
+setScriptsCache([]);
+t('checklistCount: no saved scripts at all is 0, not a crash', checklistCount(), 0);
+
+setScriptsCache([{ name: 'd.pdf', work: { '1::X': { checklist: { gutCheck: 'yikes' } }, '2::X': { checklist: { verb: 'go' } } } }]);
+t('checklistCount: counts multiple filled entries within a single script, not just one per script',
+  checklistCount(), 2);
+
+setScriptsCache([{ name: 'e.pdf', work: { '1::X': { checklist: { verb: '', position: 'early', direction: '', gutCheck: '' } } } }]);
+t('checklistCount: a single filled field (position only) is enough to count as filled',
+  checklistCount(), 1);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

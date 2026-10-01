@@ -1,12 +1,17 @@
 // Regression tests for the rehearsal line-scorer (norm/tokenize/lev/wordsClose/
-// lcs/bestMatches/chk) in index.html. No test framework, no build step — matches
-// the app's own "single static file" philosophy. Run with:
+// lcs/bestMatches/chk/dYou/dScr) in index.html. No test framework, no build
+// step — matches the app's own "single static file" philosophy. Run with:
 //   node test-scorer.mjs
 //
 // It extracts the ACTUAL current implementation straight out of index.html
 // (not a hand-copied duplicate) so this can never silently drift from the
 // real code. If chk() starts mis-scoring a line as right when it was wrong
 // (or vice versa) with no crash to warn you, this is what would catch it.
+// Same for dYou()/dScr() — the word-by-word green/red highlighting shown
+// after every rehearsed line. They index into bestMatches()'s output
+// independently (matchedA from m[0], matchedB from m[1]) rather than sharing
+// chk()'s pass/fail math, so a correct chk() verdict doesn't guarantee the
+// highlighting shown alongside it is correct.
 
 import { readFileSync } from 'fs';
 
@@ -29,14 +34,42 @@ for (; i < src.length; i++) {
 if (chkEnd === -1) { console.error('Could not find the end of chk() — brace mismatch?'); process.exit(1); }
 
 const scorerSrc = src.slice(start, chkEnd);
-let mode = 'word'; // chk() reads this as a free variable, same as it does live in the app
-const scope = new Function('mode', `${scorerSrc}\nreturn {norm,tokenize,lev,wordsClose,weq,lcs,bestMatches,chk};`);
-const { norm, tokenize, lev, wordsClose, chk } = scope(mode);
-// chk() closes over `mode` as a free variable at call time via the Function's
-// own scope — since we can't mutate that closure's `mode` from out here,
-// re-derive chk fresh whenever a test needs a different mode.
+
+// Extracts one top-level `function name(...){...}` body verbatim — same
+// one-liner-or-column-0-close heuristic as test-scenes.mjs's extractFn.
+// Used for esc/dYou/dScr, which sit further down the file than chk().
+function extractFn(name) {
+  const fstart = src.indexOf(`function ${name}(`);
+  if (fstart === -1) throw new Error(`Could not find function ${name}() in index.html — renamed or moved?`);
+  const openBrace = src.indexOf('{', fstart);
+  const nextNewline = src.indexOf('\n', openBrace);
+  const sameLineClose = src.indexOf('}', openBrace);
+  let end;
+  if (sameLineClose !== -1 && (nextNewline === -1 || sameLineClose < nextNewline)) {
+    end = sameLineClose + 1;
+  } else {
+    const closeAtCol0 = src.indexOf('\n}', openBrace);
+    if (closeAtCol0 === -1) throw new Error(`Could not find the end of ${name}() — did its formatting change?`);
+    end = closeAtCol0 + 2;
+  }
+  return src.slice(fstart, end);
+}
+const dyeSrc = `${scorerSrc}\n${extractFn('esc')}\n${extractFn('dYou')}\n${extractFn('dScr')}`;
+
+let mode = 'word'; // chk()/dYou()/dScr() read this as a free variable, same as they do live in the app
+const scope = new Function('mode', `${dyeSrc}\nreturn {norm,tokenize,lev,wordsClose,weq,lcs,bestMatches,chk,dYou,dScr};`);
+const { norm, tokenize, lev, wordsClose, chk, dYou, dScr } = scope(mode);
+// chk()/dYou()/dScr() close over `mode` as a free variable at call time via
+// the Function's own scope — since we can't mutate that closure's `mode`
+// from out here, re-derive fresh whenever a test needs a different mode.
 function chkWithMode(m, s, c) {
   return new Function('mode', `${scorerSrc}\nreturn chk(${JSON.stringify(s)}, ${JSON.stringify(c)});`)(m);
+}
+function dYouWithMode(m, s, c) {
+  return new Function('mode', `${dyeSrc}\nreturn dYou(${JSON.stringify(s)}, ${JSON.stringify(c)});`)(m);
+}
+function dScrWithMode(m, s, c) {
+  return new Function('mode', `${dyeSrc}\nreturn dScr(${JSON.stringify(s)}, ${JSON.stringify(c)});`)(m);
 }
 
 let pass = 0, fail = 0;
@@ -95,6 +128,55 @@ t('chk phrase mode: same 75% match passes the looser 65% bar',
   chkWithMode('phrase', TWO_WORDS_DROPPED, LINE), true);
 
 t('chk empty spoken input never crashes and fails cleanly', chkWithMode('word', '', LINE), false);
+
+// --- dYou()/dScr(): the word-by-word <span class="wo/ww/wf"> highlighting
+// shown after every rehearsed line. Verified against the real extracted
+// functions first (node, by hand), then pinned here — these build matchedA/
+// matchedB from bestMatches()'s [spoken-index, script-index] pairs
+// independently of chk(), so a passing chk() verdict doesn't guarantee this
+// highlighting is right. ---
+t('dYou word mode: verbatim marks every word right (wo)',
+  dYouWithMode('word', LINE, LINE),
+  '<span class="wo">You </span><span class="wo">said </span><span class="wo">you\'d </span><span class="wo">be </span><span class="wo">here </span><span class="wo">an </span><span class="wo">hour </span><span class="wo">ago. </span>');
+
+t('dYou word mode: a dropped trailing word leaves the spoken words that ARE there marked right',
+  dYouWithMode('word', "You said you'd be here an hour.", LINE),
+  '<span class="wo">You </span><span class="wo">said </span><span class="wo">you\'d </span><span class="wo">be </span><span class="wo">here </span><span class="wo">an </span><span class="wo">hour. </span>');
+t('dScr word mode: the script word she never said is flagged missing (wf), not silently matched',
+  dScrWithMode('word', "You said you'd be here an hour.", LINE),
+  '<span class="wo">You </span><span class="wo">said </span><span class="wo">you\'d </span><span class="wo">be </span><span class="wo">here </span><span class="wo">an </span><span class="wo">hour </span><span class="wf">ago. </span>');
+
+t('dYou word mode: a totally different reading marks every spoken word wrong (ww)',
+  dYouWithMode('word', 'Nothing like that at all.', LINE),
+  '<span class="ww">Nothing </span><span class="ww">like </span><span class="ww">that </span><span class="ww">at </span><span class="ww">all. </span>');
+t('dScr word mode: with nothing matched, every script word is flagged missing',
+  dScrWithMode('word', 'Nothing like that at all.', LINE),
+  '<span class="wf">You </span><span class="wf">said </span><span class="wf">you\'d </span><span class="wf">be </span><span class="wf">here </span><span class="wf">an </span><span class="wf">hour </span><span class="wf">ago. </span>');
+
+t('dYou word mode: a Whisper-style mishearing ("our" for "hour") is marked right on BOTH sides, not flagged as a miss',
+  dYouWithMode('word', "You said you'd be here an our ago.", LINE),
+  '<span class="wo">You </span><span class="wo">said </span><span class="wo">you\'d </span><span class="wo">be </span><span class="wo">here </span><span class="wo">an </span><span class="wo">our </span><span class="wo">ago. </span>');
+t('dScr word mode: the fuzzy-matched script word is marked right, not missing',
+  dScrWithMode('word', "You said you'd be here an our ago.", LINE),
+  '<span class="wo">You </span><span class="wo">said </span><span class="wo">you\'d </span><span class="wo">be </span><span class="wo">here </span><span class="wo">an </span><span class="wo">hour </span><span class="wo">ago. </span>');
+
+// A leading extra word shifts every later spoken-word index one ahead of its
+// matching script-word index (spoken[1]="you" matches script[0]="you", etc).
+// This is the case that would actually catch matchedA/matchedB being built
+// from the wrong element of bestMatches()'s [a,b] pairs — in every case
+// above, the matched spoken/script indices happen to coincide, so a swapped
+// index lookup would accidentally still "work".
+const SPOKEN_WITH_LEADING_EXTRA = "Well you said you'd be here an hour ago.";
+t('dYou word mode: an inserted leading word is marked wrong even though every later word\'s index is now offset from the script\'s',
+  dYouWithMode('word', SPOKEN_WITH_LEADING_EXTRA, LINE),
+  '<span class="ww">Well </span><span class="wo">you </span><span class="wo">said </span><span class="wo">you\'d </span><span class="wo">be </span><span class="wo">here </span><span class="wo">an </span><span class="wo">hour </span><span class="wo">ago. </span>');
+t('dScr word mode: despite that index offset, every real script word is still correctly matched, none wrongly flagged missing',
+  dScrWithMode('word', SPOKEN_WITH_LEADING_EXTRA, LINE),
+  '<span class="wo">You </span><span class="wo">said </span><span class="wo">you\'d </span><span class="wo">be </span><span class="wo">here </span><span class="wo">an </span><span class="wo">hour </span><span class="wo">ago. </span>');
+
+t('dYou: HTML special characters in a word are escaped, not injected raw into the rendered span',
+  dYouWithMode('word', 'Rock & roll is <loud>.', 'Rock & roll is <loud>.'),
+  '<span class="wo">Rock </span><span class="wo">&amp; </span><span class="wo">roll </span><span class="wo">is </span><span class="wo">&lt;loud&gt;. </span>');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
