@@ -85,9 +85,19 @@ const scope = new Function(`
   ${extractFn('genreCounts')}
   ${extractFn('pickCarriedGenre')}
   ${extractFn('cleanGemErr')}
-  return { norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, recomputeScenes, setSL: v => SL = v, getSL: () => SL, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, setScriptsCache: v => _scriptsCache = v };
+  ${extractFn('getScriptRoute')}
+  let curName='';
+  let _sessionWork={};
+  ${extractFn('workKey')}
+  ${extractFn('getWork')}
+  let _sceneFilter='all';
+  ${extractFn('currentSceneLines')}
+  ${extractFn('sceneText')}
+  let _logView='date';
+  ${extractFn('logGroupKey')}
+  return { norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, recomputeScenes, setSL: v => SL = v, getSL: () => SL, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache: v => _scriptsCache = v, setCurName: v => curName = v, setSessionWork: v => _sessionWork = v, setSceneFilter: v => _sceneFilter = v, setLogView: v => _logView = v };
 `)();
-const { cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, setSL, getSL, recomputeScenes, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, setScriptsCache } = scope;
+const { cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, setSL, getSL, recomputeScenes, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache, setCurName, setSessionWork, setSceneFilter, setLogView } = scope;
 
 let pass = 0, fail = 0;
 function t(desc, actual, expected) {
@@ -448,6 +458,71 @@ t('cleanGemErr: an unrelated error at a non-429 status passes the raw message th
 t('cleanGemErr: a missing/empty message at a non-429, non-quota status falls back to "Gemini error <status>"',
   cleanGemErr(503, ''),
   'Gemini error 503');
+
+// --- getScriptRoute(): which key (free Gemini vs paid OpenAI) a given saved
+// script uses — read on every AI call that script makes, including the
+// paid/free routing checks in Patterns/Genre/Tag-suggest. ---
+setScriptsCache([{ name: 'A.pdf', route: 'free' }, { name: 'B.pdf' }]);
+t('getScriptRoute: returns the script\'s own explicit route', getScriptRoute('A.pdf'), 'free');
+t('getScriptRoute: defaults to paid (the safe choice) when a script predates the route field', getScriptRoute('B.pdf'), 'paid');
+t('getScriptRoute: a script name that isn\'t saved at all also defaults to paid, not a crash', getScriptRoute('nope.pdf'), 'paid');
+
+// --- getWork()/workKey(): the per-scene-per-character Scene Work lookup.
+// Keyed by workKey(scene,char) now, but scripts saved before scenes existed
+// stored a thread under the bare character name — scene 1 falls back to that
+// old key so nothing already written gets orphaned by the scene-aware rewrite. ---
+setScriptsCache([{ name: 'Script.pdf', work: { '2::PEG': { messages: ['scene2 breakdown'] }, 'PEG': { messages: ['pre-scenes breakdown'] } } }]);
+setCurName('Script.pdf');
+t('getWork: looks up by scene::char when that key exists', getWork(2, 'PEG'), { messages: ['scene2 breakdown'] });
+t('getWork: scene 1 falls back to the old bare-char key when the scene-aware key is missing (pre-scenes save)',
+  getWork(1, 'PEG'), { messages: ['pre-scenes breakdown'] });
+t('getWork: no fallback for any OTHER scene — a pre-scenes save only ever meant scene 1',
+  getWork(3, 'PEG'), null);
+t('getWork: a character with no saved thread at all returns null, not a crash', getWork(1, 'LIAM'), null);
+setCurName('');
+setSessionWork({ 'demo|1::PEG': { messages: ['unsaved session draft'] } });
+t('getWork: with no curName (an unsaved/demo session), reads from the in-memory session store instead of a saved script',
+  getWork(1, 'PEG'), { messages: ['unsaved session draft'] });
+setSessionWork({});
+
+// --- currentSceneLines()/sceneText(): the scene-filter scoping logic that
+// Rehearse/Read-Through (via currentSceneLines) and Scene Work's prompt
+// (via sceneText) both depend on. A regression here means a rehearsal drill
+// or a breakdown request silently pulls in the wrong scene's lines. ---
+setSL([{ id: 0, scene: 1, char: 'A' }, { id: 1, scene: 2, char: 'B' }]);
+setSceneFilter('all');
+t('currentSceneLines: "all" returns every line regardless of scene', currentSceneLines().length, 2);
+setSceneFilter(2);
+t('currentSceneLines: filtered to one scene returns only that scene\'s lines', currentSceneLines(), [{ id: 1, scene: 2, char: 'B' }]);
+setSceneFilter('all');
+
+setSL([
+  { scene: 1, char: 'PEG', direction: '', text: 'Vitals stable.', before: '', after: '', cut: false },
+  { scene: 1, char: 'LIAM', direction: 'angry', text: 'Okay.', before: 'He stands.', after: '', cut: false },
+  { scene: 1, char: 'CUT', direction: '', text: 'should not appear', before: '', after: '', cut: true },
+]);
+t('sceneText: joins a scene\'s lines with character/direction/before-after context, in order, excluding cut lines',
+  sceneText(1), "PEG: Vitals stable.\nHe stands.\nLIAM (angry): Okay.");
+t('sceneText: "all" matches a specific scene number when that\'s the only scene present', sceneText('all'), sceneText(1));
+
+// --- logGroupKey(): which bucket a Coaching Log entry falls into for each of
+// the four views (Date/Script/Genre/Pattern) — a regression here splits one
+// script/genre/theme's notes into multiple repeated headers instead of one group. ---
+setLogView('date');
+t('logGroupKey date: formats the entry\'s timestamp as a human date',
+  logGroupKey({ at: new Date('2026-03-05T12:00:00Z').getTime() }), 'Mar 5, 2026');
+setLogView('script');
+t('logGroupKey script: groups by the entry\'s tagged script name', logGroupKey({ scriptName: 'X.pdf' }), 'X.pdf');
+t('logGroupKey script: an untagged (general) note groups under "General"', logGroupKey({}), 'General');
+setLogView('genre');
+setScriptsCache([{ name: 'X.pdf', genre: '  noir  ' }]);
+t('logGroupKey genre: resolves the genre LIVE from the script\'s own current tag, trimmed — not a copy stored on the note',
+  logGroupKey({ scriptName: 'X.pdf' }), 'noir');
+t('logGroupKey genre: a tagged script with no genre set groups under "Ungenred"', logGroupKey({ scriptName: 'Y.pdf' }), 'Ungenred');
+t('logGroupKey genre: a general (no scriptName) note also groups under "Ungenred"', logGroupKey({}), 'Ungenred');
+setLogView('pattern');
+t('logGroupKey pattern: groups by the entry\'s theme tag', logGroupKey({ theme: 'escalation' }), 'escalation');
+t('logGroupKey pattern: an untagged note groups under "Untagged"', logGroupKey({}), 'Untagged');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
