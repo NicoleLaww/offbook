@@ -82,9 +82,12 @@ const scope = new Function(`
   let _scriptsCache;
   ${extractFn('loadSaved')}
   ${extractFn('checklistCount')}
-  return { norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, recomputeScenes, setSL: v => SL = v, getSL: () => SL, checklistCount, setScriptsCache: v => _scriptsCache = v };
+  ${extractFn('genreCounts')}
+  ${extractFn('pickCarriedGenre')}
+  ${extractFn('cleanGemErr')}
+  return { norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, recomputeScenes, setSL: v => SL = v, getSL: () => SL, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, setScriptsCache: v => _scriptsCache = v };
 `)();
-const { cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, setSL, getSL, recomputeScenes, checklistCount, setScriptsCache } = scope;
+const { cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, setSL, getSL, recomputeScenes, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, setScriptsCache } = scope;
 
 let pass = 0, fail = 0;
 function t(desc, actual, expected) {
@@ -371,6 +374,80 @@ t('checklistCount: counts multiple filled entries within a single script, not ju
 setScriptsCache([{ name: 'e.pdf', work: { '1::X': { checklist: { verb: '', position: 'early', direction: '', gutCheck: '' } } } }]);
 t('checklistCount: a single filled field (position only) is enough to count as filled',
   checklistCount(), 1);
+
+// --- genreCounts(): gates the Genre Comparison UI (needs 2+ distinct tagged
+// genres) and feeds its "Tagged: X (2), Y (1)" summary line. ---
+setScriptsCache([
+  { name: 'a.pdf', genre: 'thriller' },
+  { name: 'b.pdf', genre: 'Thriller' }, // case-sensitive on purpose — not normalized, she types it free-text
+  { name: 'c.pdf', genre: '  ' }, // whitespace-only counts as untagged
+  { name: 'd.pdf', genre: '' },
+  { name: 'e.pdf' }, // no genre field at all
+  { name: 'f.pdf', genre: 'comedy' },
+]);
+t('genreCounts: counts exact (case-sensitive) genre strings, skipping blank/whitespace-only/missing tags',
+  genreCounts(), { thriller: 1, Thriller: 1, comedy: 1 });
+
+setScriptsCache([{ name: 'a.pdf', genre: 'drama' }, { name: 'b.pdf', genre: ' drama ' }]);
+t('genreCounts: trims surrounding whitespace before counting, so "drama" and " drama " are the same tag',
+  genreCounts(), { drama: 2 });
+
+t('genreCounts: no saved scripts at all is an empty object, not a crash',
+  (setScriptsCache([]), genreCounts()), {});
+
+// --- pickCarriedGenre(): the fix for a real bug (see git history) — revision
+// carryover's placeholder write ran BEFORE computeSavedUpdate's own
+// field-preserving spread, on a bare {name,work,lines} object, so a script's
+// genre tag silently vanished on every revision that carried anything over.
+// Confirmed live against both the common same-filename reupload and the
+// cross-filename "Revision of" pick before this was split out. ---
+t('pickCarriedGenre: prefers the tag already saved under THIS exact filename (the common same-filename reupload case)',
+  pickCarriedGenre({ name: 'Script.pdf', genre: 'psychological thriller' }, [{ name: 'Script.pdf', genre: 'psychological thriller' }]),
+  'psychological thriller');
+
+t('pickCarriedGenre: falls back to a contributing candidate\'s tag when nothing is saved yet under the new filename (the cross-filename "Revision of" case)',
+  pickCarriedGenre(undefined, [{ name: 'Draft 1.pdf', genre: 'courtroom drama' }]),
+  'courtroom drama');
+
+t('pickCarriedGenre: an existing-under-this-name tag wins over a candidate\'s, even when they differ',
+  pickCarriedGenre({ name: 'Script.pdf', genre: 'kept' }, [{ name: 'Draft 1.pdf', genre: 'discarded' }]),
+  'kept');
+
+t('pickCarriedGenre: skips a blank existing tag and falls through to the candidate instead of carrying nothing',
+  pickCarriedGenre({ name: 'Script.pdf', genre: '  ' }, [{ name: 'Draft 1.pdf', genre: 'noir' }]),
+  'noir');
+
+t('pickCarriedGenre: picks the FIRST candidate with a real tag when there are several (manualSource tried before sameNameMatch, same order doPDF builds `candidates` in)',
+  pickCarriedGenre(undefined, [{ name: 'Draft 1.pdf', genre: '' }, { name: 'Draft 2.pdf', genre: 'heist' }]),
+  'heist');
+
+t('pickCarriedGenre: no existing entry and no candidate has a tag — empty string, not undefined/null, so the caller\'s spread (genre ? {genre} : {}) cleanly omits the field',
+  pickCarriedGenre(undefined, [{ name: 'Draft 1.pdf' }, { name: 'Draft 2.pdf', genre: '' }]),
+  '');
+
+// --- cleanGemErr(): the one place a raw Gemini error becomes the message
+// isOverloadMsg/isQuotaMsg/wkRenderError actually classify and show her —
+// a regression here silently changes which button (if any) she gets on a
+// free-tier failure, same risk as a drift in those two regexes themselves. ---
+t('cleanGemErr: a 429 status always gets the friendly no-quota message, regardless of the raw message text',
+  cleanGemErr(429, 'some unrelated raw text'),
+  'Free Gemini tier has no quota on this key (it reports limit 0). Use the 🔒 Confidential (OpenAI) route, or enable billing on your Google AI Studio key.');
+
+t('cleanGemErr: a non-429 status with "quota" in the message also gets the friendly message',
+  cleanGemErr(400, 'You exceeded your current quota, limit: 0, please check your plan and billing details.'),
+  'Free Gemini tier has no quota on this key (it reports limit 0). Use the 🔒 Confidential (OpenAI) route, or enable billing on your Google AI Studio key.');
+
+t('cleanGemErr: "rate limit" wording (with or without a hyphen) also matches',
+  cleanGemErr(400, 'Rate-limit exceeded, try again later'),
+  'Free Gemini tier has no quota on this key (it reports limit 0). Use the 🔒 Confidential (OpenAI) route, or enable billing on your Google AI Studio key.');
+
+t('cleanGemErr: an unrelated error at a non-429 status passes the raw message through unchanged',
+  cleanGemErr(500, 'Internal server error'),
+  'Internal server error');
+
+t('cleanGemErr: a missing/empty message at a non-429, non-quota status falls back to "Gemini error <status>"',
+  cleanGemErr(503, ''),
+  'Gemini error 503');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

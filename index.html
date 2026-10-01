@@ -648,6 +648,21 @@ function computeSavedUpdate(arr,name,lines,routeOverride){
   const evicted = rest.length>500 ? rest[500].name : null;
   return {updated:rest.slice(0,500),evicted};
 }
+// Pure: picks the genre tag to carry into revision carryover's placeholder
+// write (doPDF) — that write happens BEFORE computeSavedUpdate's own
+// field-preserving spread runs, on a bare {name,work,lines} object, so
+// without this a script's genre silently vanished on every revision that
+// carried anything over. Prefer whatever's already saved under this exact
+// filename (the common same-name-reupload case); fall back to the first
+// contributing candidate that has one (the cross-filename "Revision of"
+// case, where that candidate is about to be folded away and would otherwise
+// take its tag with it). Split out so the picking logic is testable on its
+// own (see test-scenes.mjs) instead of only exercised live.
+function pickCarriedGenre(existingUnderThisName,candidates){
+  return (existingUnderThisName&&(existingUnderThisName.genre||'').trim())
+    || candidates.map(s=>(s.genre||'').trim()).find(Boolean)
+    || '';
+}
 // routeOverride is passed ONLY by doPDF() at upload time (the moment the
 // actor explicitly picks confidential/public) — every other caller (line
 // toggles, cuts, scene renames) omits it, so computeSavedUpdate's spread just
@@ -1513,22 +1528,7 @@ async function doPDF(file){
         }
       }
       if(carriedCount||storyCarried){
-        // Scene Work isn't the only per-script data worth keeping — a genre
-        // tag would otherwise vanish the instant this placeholder overwrites
-        // whatever it replaces, the exact bug computeSavedUpdate was built to
-        // prevent, just reached through a different write path (this runs
-        // BEFORE saveCurrent()'s own field-preserving spread, on a bare
-        // {name,work,lines} object). Confirmed live this silently wiped the
-        // genre tag on every ordinary same-filename revision re-upload that
-        // carried anything over — not just the cross-filename "Revision of"
-        // case. Prefer the tag already sitting under THIS exact filename
-        // (the common case); fall back to the first contributing candidate
-        // that has one (the cross-filename case, where that candidate is
-        // about to be folded away and would otherwise take its tag with it).
-        const existingUnderThisName=loadSaved().find(s=>s.name===file.name);
-        const carriedGenre=(existingUnderThisName&&(existingUnderThisName.genre||'').trim())
-          || candidates.map(s=>(s.genre||'').trim()).find(Boolean)
-          || '';
+        const carriedGenre=pickCarriedGenre(loadSaved().find(s=>s.name===file.name),candidates);
         // Pre-seed a placeholder under the NEW name holding only the
         // freshly-remapped work, so saveCurrent()'s own by-name lookup
         // (a few lines down) picks it up correctly — and fold in any
