@@ -661,10 +661,19 @@ function saveCurrent(routeOverride){
 }
 function loadScript(name){
   const s=loadSaved().find(x=>x.name===name);if(!s)return;
+  // Re-loading the SAME already-open script (e.g. "← Scripts" to check
+  // something else, then "Load" on this one again) reassigns ids by array
+  // index same as before, in the same order — so a pending undo-merge or
+  // merge-suggestion is still valid and shouldn't be silently thrown away.
+  // Confirmed live this was dropping a merge-reversion suggestion with zero
+  // warning on nothing more unusual than navigating away and back.
+  const sameScript=curName===name;
   SL=s.lines.map((l,i)=>({...l,id:i,isMine:!!l.isMine}));
   recomputeScenes();
-  _lastMerge=null; // a fresh line-id set — any pending undo-merge pointed at the PREVIOUS script's lines
-  _mergeSuggestion=null;
+  if(!sameScript){
+    _lastMerge=null; // a fresh line-id set — any pending undo-merge pointed at the PREVIOUS script's lines
+    _mergeSuggestion=null;
+  }
   curName=name;
   document.getElementById('fname').textContent=name;
   updateScriptRouteBadge();
@@ -1504,13 +1513,29 @@ async function doPDF(file){
         }
       }
       if(carriedCount||storyCarried){
+        // Scene Work isn't the only per-script data worth keeping — a genre
+        // tag would otherwise vanish the instant this placeholder overwrites
+        // whatever it replaces, the exact bug computeSavedUpdate was built to
+        // prevent, just reached through a different write path (this runs
+        // BEFORE saveCurrent()'s own field-preserving spread, on a bare
+        // {name,work,lines} object). Confirmed live this silently wiped the
+        // genre tag on every ordinary same-filename revision re-upload that
+        // carried anything over — not just the cross-filename "Revision of"
+        // case. Prefer the tag already sitting under THIS exact filename
+        // (the common case); fall back to the first contributing candidate
+        // that has one (the cross-filename case, where that candidate is
+        // about to be folded away and would otherwise take its tag with it).
+        const existingUnderThisName=loadSaved().find(s=>s.name===file.name);
+        const carriedGenre=(existingUnderThisName&&(existingUnderThisName.genre||'').trim())
+          || candidates.map(s=>(s.genre||'').trim()).find(Boolean)
+          || '';
         // Pre-seed a placeholder under the NEW name holding only the
         // freshly-remapped work, so saveCurrent()'s own by-name lookup
         // (a few lines down) picks it up correctly — and fold in any
         // contributing candidate under a different name instead of leaving
         // two disconnected saves.
         const rest=loadSaved().filter(s=>!contributedNames.has(s.name)&&s.name!==file.name);
-        rest.unshift({name:file.name,work:newWork,lines:[]});
+        rest.unshift({name:file.name,work:newWork,lines:[],...(carriedGenre?{genre:carriedGenre}:{})});
         writeSaved(rest);
       }
     }
@@ -3479,7 +3504,15 @@ function goEdit(){document.getElementById('cmp').classList.remove('show');stopAu
 function goLibrary(){show('step-upload');renderSaved();}
 function showDone(){releaseMic();show('done-screen');document.getElementById('dscore').textContent=`${nCleared} of ${RL.length} lines cleared · ${Math.round(nCleared/RL.length*100)}% accuracy`;}
 function restart(){cleared.fill(false);cur=0;nCleared=0;passed=false;mode='word';document.querySelectorAll('.mp').forEach((b,i)=>b.classList.toggle('on',i===1));updProg();buildReh();show('reh-screen');scrollCur();}
-function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+// Escapes quotes too, not just &/</> — several call sites interpolate esc()'s
+// result straight into a double-quoted HTML attribute (e.g. buildSceneTabs'
+// title="${esc(...)}"), and a scene heading or actor-renamed label containing
+// a literal " breaks out of that attribute. Confirmed live: an unescaped "
+// there let a following onmouseover="..." become a REAL attribute the browser
+// wires up as a handler — a credential-theft vector, since gemKey/oai/groqKey
+// all live in localStorage on this same origin. Not a contrived edge case —
+// an ordinary slugline like INT. THE "GREEN ROOM" - NIGHT is enough.
+function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function show(id){flushSceneEdit();['step-key','step-upload','script-screen','read-screen','reh-screen','done-screen'].forEach(s=>document.getElementById(s).style.display=s===id?'block':'none');}
 </script>
 <script>
