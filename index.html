@@ -3319,9 +3319,18 @@ async function speakText(text){
     await p.play();
     return true;
   }catch(e){
+    // If stopAudio() already ran (user hit stop mid-fetch), both flags are
+    // false — stay silent instead of speaking a line they cancelled.
+    const stillWanted=ttsLoading||ttsActive;
     stopAudio();
-    setSt('⚠ TTS: '+e.message);
-    return false;
+    if(!stillWanted)return false;
+    // OpenAI TTS can fail for reasons she can't fix mid-rehearsal (out of
+    // credits, and from 2027-01-06 the retired tts-1 model) — drop to the free
+    // browser voice so the scene partner never goes silent.
+    const ok=speakBrowser(text);
+    if(ok)setSt('⚠ HQ voice failed ('+e.message+') — used the free voice instead');
+    else setSt('⚠ TTS: '+e.message);
+    return ok;
   }
 }
 
