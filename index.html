@@ -2559,16 +2559,30 @@ async function craftLLM(system,messages,forceLight,route,onRetry,_retries){
   if((route||uploadRoute)==='free'){
     if(!gemKey)throw new Error('Public mode needs a free Gemini key.');
     const contents=messages.map(m=>({role:m.role==='assistant'?'model':'user',parts:[{text:m.content}]}));
-    const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+MODELS.gemini+':generateContent?key='+encodeURIComponent(gemKey),{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({system_instruction:{parts:[{text:system}]},contents,
-        safetySettings:['HARM_CATEGORY_HARASSMENT','HARM_CATEGORY_HATE_SPEECH','HARM_CATEGORY_SEXUALLY_EXPLICIT','HARM_CATEGORY_DANGEROUS_CONTENT'].map(c=>({category:c,threshold:'BLOCK_NONE'}))})
-    });
+    // Abortable, so "Switch to paid now" cuts a slow in-flight Gemini request
+    // short instead of waiting for it (and then for the next backoff) to finish.
+    const ctrl=new AbortController();_gemAbort=ctrl;
+    let r;
+    try{
+      r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+MODELS.gemini+':generateContent?key='+encodeURIComponent(gemKey),{
+        method:'POST',headers:{'Content-Type':'application/json'},signal:ctrl.signal,
+        body:JSON.stringify({system_instruction:{parts:[{text:system}]},contents,
+          safetySettings:['HARM_CATEGORY_HARASSMENT','HARM_CATEGORY_HATE_SPEECH','HARM_CATEGORY_SEXUALLY_EXPLICIT','HARM_CATEGORY_DANGEROUS_CONTENT'].map(c=>({category:c,threshold:'BLOCK_NONE'}))})
+      });
+    }catch(e){
+      _gemAbort=null;
+      if(_switchPaidNow){_switchPaidNow=false;return craftLLM(system,messages,forceLight,'paid',onRetry,0);}
+      throw e;
+    }
+    _gemAbort=null;
     if(!r.ok){
       const e=await r.json().catch(()=>({}));
       const msg=cleanGemErr(r.status,e.error&&e.error.message);
       if(isOverloadMsg(msg)){
         recordGeminiOverload();
+        // Switch already requested (clicked while this request was in flight)?
+        // Go straight to paid — don't show a retry message and wait it out.
+        if(_switchPaidNow){_switchPaidNow=false;return craftLLM(system,messages,forceLight,'paid',onRetry,0);}
         const decision=nextRetryDecision(_retries,true);
         if(decision){
           if(onRetry)onRetry(decision.attempt,decision.max,decision.wait);
@@ -2804,21 +2818,30 @@ function wkRetryStatus(el,attempt,max,wait){
   el.innerHTML='<span style="color:var(--muted)">⏳ Gemini\'s busy — retrying in '+Math.round(wait/1000)+'s (attempt '+attempt+'/'+max+')…</span> ';
   // Don't make her sit through the whole queue (~a minute) — offer the way out
   // right away, as long as there's an OpenAI key to switch to.
-  if(oai&&curName){
-    const btn=document.createElement('button');
-    btn.className='ghost';btn.style.cssText='margin-left:8px;padding:4px 10px;font-size:11px';
-    btn.textContent='⚡ Switch to paid now';
-    btn.onclick=switchToPaidNow;
-    el.appendChild(btn);
-  }
+  if(oai&&curName)el.appendChild(wkSwitchButton());
 }
 // Stops the free queue's retrying and re-sends the SAME request on the paid
 // route, and flips this script to paid so everything after it follows.
-let _switchPaidNow=false,_retryWake=null;
+let _switchPaidNow=false,_retryWake=null,_gemAbort=null;
 function switchToPaidNow(){
   if(curName&&getScriptRoute(curName)==='free')toggleScriptRoute(curName);
   _switchPaidNow=true;
-  if(_retryWake)_retryWake(); // cut the current wait short instead of finishing it
+  if(_gemAbort)_gemAbort.abort(); // a slow request in flight: drop it now
+  if(_retryWake)_retryWake();     // or a backoff wait: cut it short
+}
+function wkSwitchButton(){
+  const btn=document.createElement('button');
+  btn.className='ghost';btn.style.cssText='margin-left:8px;padding:4px 10px;font-size:11px';
+  btn.textContent='⚡ Switch to paid now';
+  btn.onclick=switchToPaidNow;
+  return btn;
+}
+// "Working…" status that, on the free route, offers the way out from the very
+// first second — a slow first Gemini request used to show nothing to tap.
+function wkBusyStatus(el,text){
+  el.innerHTML='';
+  const sp=document.createElement('span');sp.style.color='var(--muted)';sp.textContent=text;el.appendChild(sp);
+  if(oai&&curName&&getScriptRoute(curName)==='free')el.appendChild(wkSwitchButton());
 }
 function wkRenderError(el,e,retryFn){
   if(e.overload&&e.provider==='gemini'&&curName){
@@ -2855,7 +2878,7 @@ async function gutCheck(){
   saveChecklistFields();
   const btn=document.getElementById('wk-cl-gutbtn'),resEl=document.getElementById('wk-cl-result');
   btn.disabled=true;
-  resEl.innerHTML='<span style="color:var(--muted)">Thinking…</span>';
+  wkBusyStatus(resEl,'Thinking…');
   const thread=getWork(scene,char)||{messages:[],checklist:{}};
   const cl=thread.checklist||{};
   const _esc=t=>(t||'').replace(/<\/?(scene|answers)>/gi,'[tag]');
@@ -3396,7 +3419,7 @@ async function sendWork(){
     }
     renderThread(thread);
     wkScrollToLatest();
-    st.textContent = coach ? 'Reading your scene…' : (scene==='all' ? 'Reading the whole script…' : 'Working the scene…');
+    wkBusyStatus(st, coach ? 'Reading your scene…' : (scene==='all' ? 'Reading the whole script…' : 'Working the scene…'));
     const systemPrompt = coach ? COACH_PROMPT : (scene==='all' ? STORY_PROMPT : CRAFT_PROMPT);
     // Story analysis is a short, exploratory pass — always run it on the
     // light model regardless of the cheap-mode checkbox, which is reserved
