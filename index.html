@@ -167,13 +167,17 @@
   #work-screen select,#work-screen textarea,#am-scene{width:100%;background:var(--s2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Mono',monospace;font-size:13px;padding:10px;line-height:1.5;margin-bottom:12px;}
   #work-screen textarea{resize:vertical;}
   .wk-checklist{border-bottom:1px solid var(--border);padding-bottom:6px;margin-bottom:4px;}
-  .wk-prep{margin-top:14px;}
-  .wk-prep summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:4px 0;}
-  .wk-prep summary::-webkit-details-marker{display:none;}
-  .wk-prep summary .wk-cl-h::before{content:'▸ ';}
-  .wk-prep[open] summary .wk-cl-h::before{content:'▾ ';}
-  .wk-badge{font-size:10px;color:var(--muted);border:1px solid var(--border);border-radius:10px;padding:1px 8px;white-space:nowrap;}
-  .wk-badge.done{color:var(--green);border-color:var(--green);}
+  .rh-pt{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:14px;}
+  .rh-pt summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:10px;}
+  .rh-pt summary::-webkit-details-marker{display:none;}
+  .rh-pt summary .wk-cl-h::before{content:'▸ ';}
+  .rh-pt[open] summary .wk-cl-h::before{content:'▾ ';}
+  .rh-pt-ctx{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .rh-pt-row{display:grid;grid-template-columns:104px 1fr;gap:8px;align-items:center;margin-top:8px;font-size:12px;color:var(--muted);}
+  .rh-pt-row textarea,.rh-pt-row input,.rh-pt-note{width:100%;background:var(--s2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Mono',monospace;font-size:13px;padding:8px 10px;outline:none;}
+  .rh-pt-row textarea{resize:none;overflow:hidden;line-height:1.4;}
+  .rh-pt-row textarea:focus,.rh-pt-row input:focus,.rh-pt-note:focus{border-color:var(--accent);}
+  @media (max-width:520px){.rh-pt-row{grid-template-columns:1fr;gap:4px;}}
   .wk-dock{position:sticky;bottom:0;z-index:50;background:rgba(10,10,10,.97);backdrop-filter:blur(12px);border-top:1px solid var(--border);margin-top:16px;padding:12px 0 calc(12px + env(safe-area-inset-bottom));}
   .wk-cl-h{font-family:'Syne',sans-serif;font-weight:800;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-top:2px;}
   .wk-cl-result{margin-top:2px;margin-bottom:12px;color:var(--text);font-size:13px;line-height:1.6;}
@@ -371,7 +375,7 @@
     <span style="font-size:11px;color:var(--muted)">Scene work</span>
     <button class="ghost" onclick="closeWork()">← Script</button>
   </div>
-  <div class="am-sub">A breakdown you can step into — then keep working it in conversation. Saved with the script.</div>
+  <div class="am-sub">Three optional steps, in order — each one saved with the script. Ask the AI for help on any of them, or skip it.</div>
   <label class="wk-l" id="wk-scene-l" style="display:none">Scene</label>
   <select id="wk-scene" onchange="onSceneChange()" style="display:none"></select>
   <label class="wk-l">I'm playing</label>
@@ -380,55 +384,50 @@
     <input type="checkbox" id="wk-cheap" onchange="saveCheapMode()" style="width:auto">
     <span style="white-space:nowrap">💸 Cheap mode</span> <span class="wk-opt">mini model, lower cost, less sharp</span>
   </label>
-  <details id="wk-pretake" class="wk-prep wk-checklist" open>
-    <summary><span class="wk-cl-h">Pre-take card</span><span class="wk-badge" id="wk-badge-pretake"></span></summary>
-    <div style="font-size:10px;color:var(--muted);margin-top:2px">Three lines to glance at right before you record</div>
-    <label class="wk-l">Who am I?</label>
-    <textarea id="wk-pt-who" rows="1" placeholder="e.g. a nurse who just lost a patient" onblur="savePretakeFields()"></textarea>
-    <label class="wk-l">Who are you? <span class="wk-opt">my scene partner</span></label>
-    <textarea id="wk-pt-you" rows="1" placeholder="e.g. the doctor who signed the chart" onblur="savePretakeFields()"></textarea>
-    <label class="wk-l">What do I need? <span class="wk-opt">from them, right now</span></label>
-    <textarea id="wk-pt-need" rows="1" placeholder="e.g. for her to admit it was her call" onblur="savePretakeFields()"></textarea>
-    <div class="wk-actions-secondary" style="margin-top:10px">
-      <button class="ghost" id="wk-pt-draftbtn" onclick="draftPretake()">✨ Draft for me</button>
-      <span style="font-size:10px;color:var(--muted);align-self:center">Proposes answers from the scene — nothing is saved until you accept</span>
+  <div class="scene-tabs" id="wk-tabs" style="margin-top:16px">
+    <button class="scene-tab active" data-tab="breakdown" onclick="setWkTab('breakdown')">1 · Breakdown</button>
+    <button class="scene-tab" data-tab="coach" onclick="setWkTab('coach')">2 · Coach's questions</button>
+    <button class="scene-tab" data-tab="gut" onclick="setWkTab('gut')">3 · Gut check</button>
+  </div>
+  <div id="wk-pane-chat">
+    <div id="wk-coach-intro" class="am-sub" style="display:none">Your coach's questions, asked about your actual lines. It asks — you answer. Stumped? Say so and it'll take a swing for you to correct.</div>
+    <div id="wk-setup">
+      <label class="wk-l">Casting / character breakdown <span class="wk-opt">optional</span></label>
+      <textarea id="wk-brk" rows="2" placeholder="Paste the casting breakdown or character description…" onblur="saveWkDraft()"></textarea>
+      <label class="wk-l">Your instinct <span class="wk-opt">optional</span></label>
+      <textarea id="wk-inst" rows="2" placeholder="Any read you already have…" onblur="saveWkDraft()"></textarea>
     </div>
-    <div id="wk-pt-draft" class="wk-cl-result"></div>
-  </details>
-  <details id="wk-checklist" class="wk-prep wk-checklist">
-    <summary><span class="wk-cl-h">Pre-take checklist</span><span class="wk-badge" id="wk-badge-checklist"></span></summary>
-    <label class="wk-l">What am I literally DOING? <span class="wk-opt">the verb, not the feeling</span></label>
-    <textarea id="wk-cl-verb" rows="1" placeholder="e.g. diagnosing the patient" onblur="saveChecklistFields()"></textarea>
-    <label class="wk-l">Where does this sit? <span class="wk-opt">structurally — does it need to hook</span></label>
-    <textarea id="wk-cl-position" rows="1" placeholder="e.g. top of Act 2, pilot — needs to hook" onblur="saveChecklistFields()"></textarea>
-    <label class="wk-l">Escalate or de-escalate?</label>
-    <textarea id="wk-cl-direction" rows="1" placeholder="what the beat needs, and what I'm choosing" onblur="saveChecklistFields()"></textarea>
-    <div class="wk-actions-secondary" style="margin-top:10px">
-      <button class="ghost" id="wk-cl-gutbtn" onclick="gutCheck()">🧠 Gut check</button>
-      <span style="font-size:10px;color:var(--muted);align-self:center">Gives its own read on all three, and checks yours against it</span>
+    <div id="wk-revised-banner" style="display:none;background:rgba(251,191,36,.1);border:1px solid var(--amber);border-radius:8px;padding:10px 12px;font-size:12px;color:var(--amber);margin-bottom:12px">⚠ The script changed since this Story Analysis ran — hit 🔄 Redo below for an accurate read.</div>
+    <div id="wk-out" class="wk-out"></div>
+    <div id="wk-genall-wrap" style="display:none;margin-top:14px">
+      <button class="ghost" id="wk-genall" onclick="generateAllScenes()" style="width:100%">🎬 Generate all scene breakdowns</button>
     </div>
-    <div id="wk-cl-result" class="wk-cl-result"></div>
-  </details>
-  <div id="wk-setup">
-    <label class="wk-l">Casting / character breakdown <span class="wk-opt">optional</span></label>
-    <textarea id="wk-brk" rows="2" placeholder="Paste the casting breakdown or character description…" onblur="saveWkDraft()"></textarea>
-    <label class="wk-l">Your instinct <span class="wk-opt">optional</span></label>
-    <textarea id="wk-inst" rows="2" placeholder="Any read you already have…" onblur="saveWkDraft()"></textarea>
+    <div class="wk-actions-secondary" id="wk-secondary" style="display:none">
+      <button class="ghost" id="wk-stumped" onclick="coachStumped()" style="display:none">🤝 I'm stumped — take a swing</button>
+      <button class="ghost" onclick="copyWork()" title="Copy to clipboard">📋 Copy</button>
+      <button class="ghost" onclick="downloadWorkMd()" title="Download as Markdown">⬇ Download .md</button>
+      <button class="ghost" id="wk-redo" onclick="redoWork()" title="Ask for a fresh breakdown, keeping this thread">🔄 Redo</button>
+      <button class="ghost" onclick="resetWork()">↻ Start over</button>
+      <span style="flex:1"></span>
+      <span style="font-size:10px;color:var(--muted);align-self:center">Hover any block to edit ✏️</span>
+    </div>
   </div>
-  <div id="wk-revised-banner" style="display:none;background:rgba(251,191,36,.1);border:1px solid var(--amber);border-radius:8px;padding:10px 12px;font-size:12px;color:var(--amber);margin-bottom:12px">⚠ The script changed since this Story Analysis ran — hit 🔄 Redo below for an accurate read.</div>
-  <div id="wk-out" class="wk-out"></div>
-  <div id="wk-genall-wrap" style="display:none;margin-top:14px">
-    <button class="ghost" id="wk-genall" onclick="generateAllScenes()" style="width:100%">🎬 Generate all scene breakdowns</button>
+  <div id="wk-pane-gut" style="display:none">
+    <div id="wk-checklist" class="wk-checklist">
+      <div class="am-sub" style="margin-top:6px">Optional — answer what you know, or just hit Gut check for the AI's own read on all three (it checks yours against it if you did).</div>
+      <label class="wk-l">What am I literally DOING? <span class="wk-opt">the verb, not the feeling</span></label>
+      <textarea id="wk-cl-verb" rows="1" placeholder="e.g. diagnosing the patient" onblur="saveChecklistFields()"></textarea>
+      <label class="wk-l">Where does this sit? <span class="wk-opt">structurally — does it need to hook</span></label>
+      <textarea id="wk-cl-position" rows="1" placeholder="e.g. top of Act 2, pilot — needs to hook" onblur="saveChecklistFields()"></textarea>
+      <label class="wk-l">Escalate or de-escalate?</label>
+      <textarea id="wk-cl-direction" rows="1" placeholder="what the beat needs, and what I'm choosing" onblur="saveChecklistFields()"></textarea>
+      <div class="wk-actions-secondary" style="margin-top:10px">
+        <button class="ghost" id="wk-cl-gutbtn" onclick="gutCheck()">🧠 Gut check</button>
+      </div>
+      <div id="wk-cl-result" class="wk-cl-result"></div>
+    </div>
   </div>
-  <div class="wk-actions-secondary" id="wk-secondary" style="display:none">
-    <button class="ghost" onclick="copyWork()" title="Copy to clipboard">📋 Copy</button>
-    <button class="ghost" onclick="downloadWorkMd()" title="Download as Markdown">⬇ Download .md</button>
-    <button class="ghost" onclick="redoWork()" title="Ask for a fresh breakdown, keeping this thread">🔄 Redo</button>
-    <button class="ghost" onclick="resetWork()">↻ Start over</button>
-    <span style="flex:1"></span>
-    <span style="font-size:10px;color:var(--muted);align-self:center">Hover any block to edit ✏️</span>
-  </div>
-  <div class="wk-dock">
+  <div class="wk-dock" id="wk-dock">
     <div id="wk-followup" style="display:none">
       <button class="ghost wk-p2" onclick="phase2()">→ Now bring myself to it (Phase 2)</button>
       <textarea id="wk-msg" rows="2" placeholder="Ask a follow-up — e.g. take me through beat 3, or start Phase 2…"></textarea>
@@ -519,6 +518,17 @@
     <div class="pb"><div class="pf" id="pfill" style="width:0%"></div></div>
   </div>
   <div style="font-size:11px;color:var(--muted);margin-bottom:16px;">Your lines are blacked out. <strong style="color:var(--text)">Tap a blacked line to reveal it</strong> — tap again to hide. Hold SPACE to speak.</div>
+  <details id="rh-pretake" class="rh-pt" open>
+    <summary><span class="wk-cl-h">Pre-take card</span><span class="rh-pt-ctx" id="rh-pt-ctx"></span></summary>
+    <div class="rh-pt-row"><span>Who am I?</span><textarea id="rh-pt-who" rows="1" placeholder="optional" oninput="autoGrow(this)" onblur="savePretakeFields()"></textarea></div>
+    <div class="rh-pt-row"><span>Who are you?</span><textarea id="rh-pt-you" rows="1" placeholder="optional — my scene partner" oninput="autoGrow(this)" onblur="savePretakeFields()"></textarea></div>
+    <div class="rh-pt-row"><span>What do I need?</span><textarea id="rh-pt-need" rows="1" placeholder="optional — from them, right now" oninput="autoGrow(this)" onblur="savePretakeFields()"></textarea></div>
+    <div class="wk-actions-secondary" style="margin-top:10px">
+      <button class="ghost" id="rh-pt-help" onclick="draftPretake()">✨ Help me</button>
+      <span style="font-size:10px;color:var(--muted);align-self:center">Stumped? It proposes — you edit, nothing saves until you accept</span>
+    </div>
+    <div id="rh-pt-draft" class="wk-cl-result"></div>
+  </details>
   <div id="rlines"></div>
 
   <div id="cmp">
@@ -611,7 +621,6 @@ let SL=[],RL=[],cur=0,cleared=[],nCleared=0,mode='word',passed=false;
   if(el)el.value=({gem:gemKey,groq:groqKey,oai:oai})[id]||'';
 });
 document.getElementById('oai').addEventListener('keydown',e=>{if(e.key==='Enter')saveKeys();});
-document.getElementById('work-screen').addEventListener('input',()=>{if(typeof updatePrepBadges==='function')updatePrepBadges();});
 function saveKeys(){
   gemKey=document.getElementById('gem').value.trim();
   groqKey=document.getElementById('groq').value.trim();
@@ -2177,7 +2186,7 @@ function openWork(){
   }
   populateWkChars(getWkScene());
   document.getElementById('wk-cheap').checked=localStorage.getItem('offbook_cheap')!=='0';
-  _wkPrepKey=''; // reopening the page re-applies the default open/closed state
+  _wkTab='breakdown';
   loadThread();
   show('work-screen');
   window.scrollTo(0,0);
@@ -2347,7 +2356,10 @@ function positionHint(){
 function renderChecklist(thread){
   const cl=(thread&&thread.checklist)||{};
   document.getElementById('wk-cl-verb').value=cl.verb||'';
-  document.getElementById('wk-cl-position').value=cl.position||positionHint();
+  // Never pre-filled — a suggestion isn't her answer (and used to get saved as one).
+  const posEl=document.getElementById('wk-cl-position');
+  posEl.value=cl.position||'';
+  posEl.placeholder=positionHint()||'e.g. top of Act 2, pilot — needs to hook';
   document.getElementById('wk-cl-direction').value=cl.direction||'';
   document.getElementById('wk-cl-result').innerHTML=cl.gutCheck?mdToHtml(cl.gutCheck):'';
 }
@@ -2362,11 +2374,12 @@ function saveChecklistFields(){
   setWork(scene,char,thread);
 }
 // PRE-TAKE CARD — her coach's three questions (who am I / who are you / what
-// do I need), one short line each: the glance-sized version of a breakdown,
-// for the moment right before recording. Typed by her, saved on the same
-// per-scene per-character thread as the checklist; "Draft for me" only ever
-// PROPOSES, nothing is written until she accepts (same rule as every other AI
-// action here).
+// do I need), one short line each: the glance-sized cheat sheet for the moment
+// right before recording, so it lives on the REHEARSE screen and follows the
+// scene/character of the line she's on. Everything is optional and never
+// pre-filled; "Help me" only ever PROPOSES — editable, with a "what's off?"
+// note to re-draft — and nothing is written until she accepts. Saved on the
+// same per-scene per-character record as the checklist.
 const PRETAKE_PROMPT=`You are drafting an actor's pre-take card: three one-line answers she can glance at right before recording, where a full breakdown would be too much. Same direct craft voice as the rest of her tool — banned: "perhaps," "one could argue," "you might consider."
 
 The three questions:
@@ -2375,6 +2388,8 @@ The three questions:
 3. need — WHAT DO I NEED: the one thing I need from them right now, in one short line — something they can do or give me, aimed at the partner. Not a feeling, not a result I'm trying to play.
 
 Rules: each answer is ONE line, 15 words max. Ground every answer in the sides — never invent facts that aren't there or are not strongly implied; if the sides are thin, make the best inference and keep it plain. First person for "who" and "need" ("a nurse who...", "for her to..."), the partner in second person or by role for "you".
+
+If the actor has already written a line (you'll see it under <answers>), return it unchanged unless her note says to change it — you're collaborating, not overwriting. If she gives a note on a previous draft, revise per the note and keep whatever she didn't object to.
 
 Return ONLY a JSON object: {"who":"...","you":"...","need":"..."} — no prose, no code fences.`;
 // Pure: turns the model's reply into {who,you,need}, tolerating a bare JSON
@@ -2394,79 +2409,93 @@ function parsePretakeReply(reply){
   const out={who:s(obj.who),you:s(obj.you),need:s(obj.need)};
   return (out.who||out.you||out.need)?out:null;
 }
-// "n of m filled" badges on the collapsible prep blocks, so a closed block
-// still tells her whether there's anything in it.
-function updatePrepBadges(){
-  // The position field is pre-filled with a "Scene 1 of 2" hint — that's a
-  // suggestion, not her answer, so it doesn't count as filled.
-  const count=ids=>ids.filter(id=>{const el=document.getElementById(id);return el&&el.value.trim()&&!(id==='wk-cl-position'&&el.value.trim()===positionHint());}).length;
-  const set=(badgeId,ids)=>{
-    const b=document.getElementById(badgeId);if(!b)return;
-    const n=count(ids);
-    b.textContent=n+' of '+ids.length;
-    b.classList.toggle('done',n===ids.length);
-  };
-  set('wk-badge-pretake',['wk-pt-who','wk-pt-you','wk-pt-need']);
-  set('wk-badge-checklist',['wk-cl-verb','wk-cl-position','wk-cl-direction']);
+// The scene/character the Rehearse card is about: whatever line she's on, so
+// the card follows her through a multi-scene run.
+// Lines on the card are read at a glance right before a take — never truncate
+// them to one clipped row, grow the box to fit the text.
+function autoGrow(el){el.style.height='auto';el.style.height=el.scrollHeight+'px';}
+function ptCtx(){
+  if(typeof RL==='undefined'||!RL||!RL.length||!RL[cur])return null;
+  return {scene:RL[cur].scene,char:RL[cur].char};
 }
-function renderPretake(thread){
-  const pt=(thread&&thread.pretake)||{};
-  document.getElementById('wk-pt-who').value=pt.who||'';
-  document.getElementById('wk-pt-you').value=pt.you||'';
-  document.getElementById('wk-pt-need').value=pt.need||'';
-  document.getElementById('wk-pt-draft').innerHTML='';
+function renderPretake(){
+  const ctx=ptCtx();if(!ctx)return;
+  const t=getWork(ctx.scene,ctx.char);
+  const pt=(t&&t.pretake)||{};
+  document.getElementById('rh-pt-who').value=pt.who||'';
+  document.getElementById('rh-pt-you').value=pt.you||'';
+  document.getElementById('rh-pt-need').value=pt.need||'';
+  ['rh-pt-who','rh-pt-you','rh-pt-need'].forEach(id=>autoGrow(document.getElementById(id)));
+  document.getElementById('rh-pt-draft').innerHTML='';
+  const c=document.getElementById('rh-pt-ctx');if(c)c.textContent=`Scene ${ctx.scene} · ${cleanChar(ctx.char)}`;
 }
 function savePretakeFields(){
-  const scene=getWkScene(),char=document.getElementById('wk-char').value;
-  if(!char||scene==='all')return;
-  const who=document.getElementById('wk-pt-who').value,you=document.getElementById('wk-pt-you').value,need=document.getElementById('wk-pt-need').value;
-  const existing=getWork(scene,char);
+  const ctx=ptCtx();if(!ctx)return;
+  const who=document.getElementById('rh-pt-who').value,you=document.getElementById('rh-pt-you').value,need=document.getElementById('rh-pt-need').value;
+  const existing=getWork(ctx.scene,ctx.char);
   if(!existing&&!who.trim()&&!you.trim()&&!need.trim())return; // don't create an empty thread just because a blank field lost focus
   const thread=existing||{messages:[]};
   thread.pretake={who,you,need};
-  setWork(scene,char,thread);
+  setWork(ctx.scene,ctx.char,thread);
 }
-async function draftPretake(){
-  const scene=getWkScene(),char=document.getElementById('wk-char').value;
-  if(!SL.length||!char||scene==='all')return;
-  const btn=document.getElementById('wk-pt-draftbtn'),resEl=document.getElementById('wk-pt-draft');
+// prev/note: set by "Re-draft" — her edited proposal plus what's off about it.
+async function draftPretake(prev,note){
+  const ctx=ptCtx();
+  if(!ctx||!SL.length)return;
+  const {scene,char}=ctx;
+  const btn=document.getElementById('rh-pt-help'),resEl=document.getElementById('rh-pt-draft');
   btn.disabled=true;
   resEl.innerHTML='<span style="color:var(--muted)">Thinking…</span>';
-  const _esc=t=>(t||'').replace(/<\/?scene>/gi,'[tag]');
+  const _esc=t=>(t||'').replace(/<\/?(scene|answers)>/gi,'[tag]');
   const scopeNote=`Scene ${scene}${sceneNameFor(scene)?` (${sceneNameFor(scene)})`:''}`;
-  const prompt=`I'm playing: ${char} — ${scopeNote}\n\n<scene>\n${_esc(sceneText(scene))}\n</scene>\n\nDraft my pre-take card.`;
+  const val=id=>_esc(document.getElementById(id).value.trim())||'(not answered)';
+  const answers=`Who am I: ${val('rh-pt-who')}\nWho are you: ${val('rh-pt-you')}\nWhat do I need: ${val('rh-pt-need')}`;
+  const prompt=`I'm playing: ${char} — ${scopeNote}\n\n<answers>\n${answers}\n</answers>\n\n<scene>\n${_esc(sceneText(scene))}\n</scene>\n\nDraft my pre-take card.`;
+  const messages=[{role:'user',content:prompt}];
+  if(prev&&note&&note.trim()){
+    messages.push({role:'assistant',content:JSON.stringify({who:prev.who,you:prev.you,need:prev.need})});
+    messages.push({role:'user',content:'My note on that draft: '+_esc(note.trim())+'\nRevise it.'});
+  }
   try{
-    const reply=await craftLLM(PRETAKE_PROMPT,[{role:'user',content:prompt}],true,getScriptRoute(curName),(a,m,w)=>wkRetryStatus(resEl,a,m,w));
-    // She may have switched scene/character while this was in flight — the
-    // card on screen now belongs to something else, so drop the result rather
-    // than offer a draft for the wrong scene.
-    if(getWkScene()!==scene||document.getElementById('wk-char').value!==char){btn.disabled=false;return;}
+    const reply=await craftLLM(PRETAKE_PROMPT,messages,true,getScriptRoute(curName),(a,m,w)=>wkRetryStatus(resEl,a,m,w));
+    // She may have moved to another line/scene while this was in flight — the
+    // card on screen belongs to something else, so drop the result.
+    const now=ptCtx();
+    if(!now||now.scene!==scene||now.char!==char){btn.disabled=false;return;}
     const draft=parsePretakeReply(reply);
     if(!draft){resEl.innerHTML='<span style="color:var(--accent)">⚠ Couldn\'t read that draft — try again.</span>';btn.disabled=false;return;}
     resEl.innerHTML='';
     const box=document.createElement('div');box.className='saved-item';box.style.cssText='flex-direction:column;align-items:stretch;gap:6px';
-    [['Who am I?',draft.who],['Who are you?',draft.you],['What do I need?',draft.need]].forEach(([label,val])=>{
-      const row=document.createElement('div');row.style.fontSize='13px';
-      const b=document.createElement('b');b.style.color='var(--muted)';b.textContent=label+' ';
-      row.appendChild(b);row.appendChild(document.createTextNode(val||'—'));
-      box.appendChild(row);
+    const inputs={};
+    [['who','Who am I?'],['you','Who are you?'],['need','What do I need?']].forEach(([k,label])=>{
+      const row=document.createElement('div');row.className='rh-pt-row';
+      const sp=document.createElement('span');sp.textContent=label;
+      const inp=document.createElement('textarea');inp.rows=1;inp.value=draft[k]||'';
+      inp.oninput=()=>autoGrow(inp);
+      inputs[k]=inp;
+      row.appendChild(sp);row.appendChild(inp);box.appendChild(row);
     });
-    const actions=document.createElement('div');actions.style.cssText='display:flex;gap:6px';
-    const use=document.createElement('button');use.className='ghost';use.textContent='✓ Use this';
+    const noteInp=document.createElement('input');noteInp.type='text';noteInp.className='rh-pt-note';noteInp.placeholder="What's off? (optional — then Re-draft)";
+    box.appendChild(noteInp);
+    const actions=document.createElement('div');actions.style.cssText='display:flex;gap:6px;flex-wrap:wrap';
+    const use=document.createElement('button');use.className='ghost';use.textContent='✓ Use these';
     use.onclick=()=>{
-      if(draft.who)document.getElementById('wk-pt-who').value=draft.who;
-      if(draft.you)document.getElementById('wk-pt-you').value=draft.you;
-      if(draft.need)document.getElementById('wk-pt-need').value=draft.need;
+      document.getElementById('rh-pt-who').value=inputs.who.value;
+      document.getElementById('rh-pt-you').value=inputs.you.value;
+      document.getElementById('rh-pt-need').value=inputs.need.value;
+      ['rh-pt-who','rh-pt-you','rh-pt-need'].forEach(id=>autoGrow(document.getElementById(id)));
       savePretakeFields();
-      updatePrepBadges();
       resEl.innerHTML='';
     };
+    const redo=document.createElement('button');redo.className='ghost';redo.textContent='↻ Re-draft with my note';
+    redo.onclick=()=>draftPretake({who:inputs.who.value,you:inputs.you.value,need:inputs.need.value},noteInp.value);
     const skip=document.createElement('button');skip.className='ghost';skip.textContent='✕ Dismiss';
     skip.onclick=()=>{resEl.innerHTML='';};
-    actions.appendChild(use);actions.appendChild(skip);box.appendChild(actions);
+    actions.appendChild(use);actions.appendChild(redo);actions.appendChild(skip);box.appendChild(actions);
     resEl.appendChild(box);
+    Object.values(inputs).forEach(autoGrow);
   }catch(e){
-    wkRenderError(resEl,e,draftPretake);
+    wkRenderError(resEl,e,()=>draftPretake());
   }
   btn.disabled=false;
 }
@@ -2596,29 +2625,45 @@ function wkScrollToLatest(){
   const last=out&&out.lastElementChild;
   if(last)last.scrollIntoView({behavior:'smooth',block:'start'});
 }
+// Which conversation the chat area is showing: the breakdown (the thread
+// itself) or the coach's-questions chat (stored beside it as thread.coach, so
+// the existing breakdown record and saved-data format are untouched).
+let _wkTab='breakdown';
+function setWkTab(t){_wkTab=t;loadThread();}
+function wkChat(scene,char){
+  const t=getWork(scene,char);
+  return (_wkTab==='coach'&&scene!=='all')?((t&&t.coach)||null):t;
+}
+// Explicit about which chat (not the live tab) — a request can finish after
+// she's switched tabs, and must still save to the chat it was sent from.
+function saveChat(scene,char,coach,chat){
+  if(coach){const base=getWork(scene,char)||{messages:[]};base.coach=chat;setWork(scene,char,base);}
+  else setWork(scene,char,chat);
+}
 function editMessage(idx){
   _editingIdx=idx;
   const char=document.getElementById('wk-char').value;
-  renderThread(getWork(getWkScene(),char));
+  renderThread(wkChat(getWkScene(),char));
   const ta=document.getElementById('wk-edit-ta-'+idx);
   if(ta){ta.focus();ta.style.height=Math.max(160,ta.scrollHeight)+'px';}
 }
 function saveEditMessage(idx){
   const scene=getWkScene(),char=document.getElementById('wk-char').value;
-  const thread=getWork(scene,char);
+  const coach=_wkTab==='coach'&&scene!=='all';
+  const thread=wkChat(scene,char);
   const ta=document.getElementById('wk-edit-ta-'+idx);
   if(ta && thread && thread.messages[idx]){
     thread.messages[idx].content=ta.value;
-    setWork(scene,char,thread);
+    saveChat(scene,char,coach,thread);
   }
   _editingIdx=-1;
-  renderThread(getWork(scene,char));
+  renderThread(wkChat(scene,char));
   document.getElementById('wk-status').textContent='✓ Saved edit';
   setTimeout(()=>{const s=document.getElementById('wk-status');if(s.textContent==='✓ Saved edit')s.textContent='';},2500);
 }
 function cancelEditMessage(){
   _editingIdx=-1;
-  renderThread(getWork(getWkScene(),document.getElementById('wk-char').value));
+  renderThread(wkChat(getWkScene(),document.getElementById('wk-char').value));
 }
 // Draft casting-breakdown/instinct text used to live only in the DOM — typed
 // in, then wiped the instant the modal closed or the scene/character
@@ -2634,46 +2679,43 @@ function saveWkDraft(){
   thread.draft=(brk||inst)?{brk,inst}:undefined;
   setWork(scene,char,thread);
 }
-let _wkPrepKey='';
 function loadThread(){
-  const scene=getWkScene();
-  const thread=getWork(scene,document.getElementById('wk-char').value);
-  const has=!!(thread&&thread.messages&&thread.messages.length);
-  const draft=(thread&&thread.draft)||{};
+  const scene=getWkScene(),char=document.getElementById('wk-char').value;
+  // Coach's questions and Gut check are per-scene — a whole multi-scene packet
+  // has no single verb/position/beat to ask about — so whole-script is
+  // breakdown-only (the story analysis).
+  if(scene==='all')_wkTab='breakdown';
+  const coach=_wkTab==='coach',gut=_wkTab==='gut';
+  const base=getWork(scene,char);
+  const chat=coach?(base&&base.coach):base;
+  const has=!!(chat&&chat.messages&&chat.messages.length);
+  const draft=(base&&base.draft)||{};
   document.getElementById('wk-brk').value=draft.brk||'';
   document.getElementById('wk-inst').value=draft.inst||'';
-  document.getElementById('wk-setup').style.display=has?'none':'block';
-  // The checklist asks for ONE playable verb / ONE structural position for
-  // the beat you're about to play — unanswerable for a whole multi-scene
-  // packet, so it only makes sense once a specific scene is picked.
-  document.getElementById('wk-checklist').style.display=scene==='all'?'none':'block';
-  document.getElementById('wk-pretake').style.display=scene==='all'?'none':'block'; // per-scene, same reason as the checklist
+  const tabs=document.getElementById('wk-tabs');
+  tabs.style.display=scene==='all'?'none':'flex';
+  tabs.querySelectorAll('.scene-tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===_wkTab));
+  document.getElementById('wk-pane-chat').style.display=gut?'none':'block';
+  document.getElementById('wk-pane-gut').style.display=gut?'block':'none';
+  document.getElementById('wk-dock').style.display=gut?'none':'block';
+  document.getElementById('wk-coach-intro').style.display=(coach&&!has)?'block':'none';
+  document.getElementById('wk-setup').style.display=(has||coach)?'none':'block';
   document.getElementById('wk-followup').style.display=has?'block':'none';
+  document.querySelector('#wk-followup .wk-p2').style.display=coach?'none':'';
+  document.getElementById('wk-msg').placeholder=coach?'Answer one or all — or say you\'re stumped…':'Ask a follow-up — e.g. take me through beat 3, or start Phase 2…';
   const sec=document.getElementById('wk-secondary');if(sec)sec.style.display=has?'flex':'none';
-  document.getElementById('wk-go').textContent=has?'SEND →':'BREAK IT DOWN';
+  document.getElementById('wk-redo').style.display=coach?'none':'';
+  document.getElementById('wk-stumped').style.display=coach?'':'none';
+  document.getElementById('wk-go').textContent=has?'SEND →':(coach?'ASK ME THE QUESTIONS':'BREAK IT DOWN');
   document.getElementById('wk-status').textContent='';
   const revBanner=document.getElementById('wk-revised-banner');
-  if(revBanner)revBanner.style.display=(scene==='all'&&thread&&thread._revised)?'block':'none';
+  if(revBanner)revBanner.style.display=(scene==='all'&&base&&base._revised)?'block':'none';
   const totalScenes=new Set(SL.map(l=>l.scene)).size;
   const genWrap=document.getElementById('wk-genall-wrap');
   if(genWrap)genWrap.style.display=(scene==='all'&&has&&totalScenes>1)?'block':'none';
   _editingIdx=-1;
-  renderThread(thread);
-  renderChecklist(thread);
-  renderPretake(thread);
-  // Prep tucks away once the conversation has started (the badges still show
-  // what's filled, and a click reopens it); the card stays open either way.
-  // Only apply the open/closed defaults when the context actually changes
-  // (different scene/character, or the first breakdown just landed) — doing it
-  // on every reload slammed the checklist shut after each follow-up, even right
-  // after she'd reopened it to read her gut check.
-  const prepKey=scene+'::'+document.getElementById('wk-char').value+'::'+has;
-  if(prepKey!==_wkPrepKey){
-    _wkPrepKey=prepKey;
-    document.getElementById('wk-checklist').open=!has;
-    document.getElementById('wk-pretake').open=true;
-  }
-  updatePrepBadges();
+  renderThread(chat);
+  renderChecklist(base);
 }
 // Wrap user + script data in tags and escape any closing tags so the LLM treats scene/story content as DATA, not instructions.
 function _escTags(t){return (t||'').replace(/<\/?(scene|breakdown|instinct|story)>/gi,'[tag]');}
@@ -2710,23 +2752,59 @@ function setWkButtonsBusy(busy){
   document.getElementById('wk-go').disabled=busy;
   document.querySelectorAll('#wk-secondary button').forEach(b=>b.disabled=busy);
 }
+// Her coach's framework, as questions to ASK her — not answer. Same synthesis
+// voice as the rest of the tool, but the whole point is that she does the
+// thinking: it only answers when she explicitly says she's stumped, and then
+// hands it back for her to correct.
+const COACH_PROMPT=`You are an actor's script-analysis coach, working from her coach's framework before a self-tape or audition. YOUR JOB IS TO ASK, NOT TO ANSWER. She does the thinking; you make her sharper by asking about her actual scene.
+
+RULES:
+- Never answer the questions for her, never slip your own read in as a hint, and never say what the "right" choice is — UNLESS she explicitly asks you to ("I'm stumped," "take a swing," "what do you think"). If she does, give your honest read grounded in the lines, then hand it back and ask what she'd change — she corrects you.
+- Make every question specific to THIS scene: point at actual lines (quote a few words) so she can find them. A generic question she could answer without the sides is a failure.
+- Same direct voice as the rest of her tool — no hedging. Banned: "perhaps," "one could argue," "you might consider." Terse.
+
+YOUR FIRST REPLY: open with one short line orienting her (character, scene), then ask these all at once, numbered, each under its short name, one to three sentences each. Pointing at lines is expected — that is not answering:
+1. GENRE / TONE — What show or comparable is this? Where are the ceiling and floor of its performance style? Ask her to name one or two comparables she'd watch.
+2. AUDIENCE RESPONSE — In one sentence, what should the audience feel about this character by the end of the scene (hate, suspect, root for, laugh at the bit)?
+3. THE SCENE'S JOB — Why does this scene exist in the story? What does production need this role to deliver (plot info, a joke, a setup for the leads)?
+4. DISCOVERIES — Point at every line where the character reveals something big. For each, ask: new today, or forced out right now? Point at any line at risk of "Exposition City" and ask how she'll keep it alive.
+5. THE OTHER PERSON — What is her character doing TO the other person on each beat? Where are they lying?
+6. HISTORY — What's the repeated pattern in this relationship, and why is today different?
+7. TENSION — Where does it escalate? Does the scene end on tension? Point at any spot where she might drop into passive grief or sadness when the scene needs active frustration, anger or overwhelm, and ask what she'll play instead.
+8. BAIT-AND-SWITCH — ONLY if the scene actually has a flip (a moment where it turns out to be something other than what it seemed). If it doesn't, skip this question entirely — don't ask it, don't mention it, and keep the other numbers as they are.
+9. SINGLE-CAMERA PROBLEMS — Point out any stunts, weapons, multiple eyelines, volume spikes, or "talking head" stretches in the text that need business, and ask what business she'll add. If there are none, skip it.
+
+AFTER SHE ANSWERS: react to what she actually said. Push on thin, vague or generic answers ("what does that look like on her face?"), flag where an answer contradicts the text, and ask follow-ups — a few at a time, not another list. If she skips a question, leave it; don't nag. Plain conversational prose, no headers after the first reply.`;
+const COACH_ASK_SUFFIX="\n\nAsk me the coach's questions — don't answer them for me.";
 async function sendWork(){
   const st=document.getElementById('wk-status');
   const scene=getWkScene(),char=document.getElementById('wk-char').value;
-  let thread=getWork(scene,char);
+  // Fixed at send time: she can switch tabs/scenes while a request is in
+  // flight, and the reply has to land in the chat it was asked from.
+  const coach=_wkTab==='coach'&&scene!=='all';
+  const base=getWork(scene,char);
+  let thread=coach?(base&&base.coach):base;
   _wkJobRunning++;
   setWkButtonsBusy(true);
   const isFreshBreakdown=!thread||!thread.messages||!thread.messages.length;
   try{
     if(isFreshBreakdown){
-      const brk=document.getElementById('wk-brk').value.trim();
-      const inst=document.getElementById('wk-inst').value.trim();
-      const first=buildFirstMessage(scene,char,brk,inst);
-      // Spread the existing record: a thread with no messages yet can already
-      // hold her pre-take card, checklist answers and draft (all saved on blur
-      // before the first breakdown) — a bare {messages} here silently wiped
-      // them on the first BREAK IT DOWN, confirmed live.
-      thread={...(thread||{}),messages:[{role:'user',content:first}]};
+      let first,fresh;
+      if(coach){
+        const d=(base&&base.draft)||{};
+        first=buildFirstMessage(scene,char,(d.brk||'').trim(),(d.inst||'').trim())+COACH_ASK_SUFFIX;
+        fresh={messages:[{role:'user',content:first}]};
+      } else {
+        const brk=document.getElementById('wk-brk').value.trim();
+        const inst=document.getElementById('wk-inst').value.trim();
+        first=buildFirstMessage(scene,char,brk,inst);
+        // Spread the existing record: a thread with no messages yet can already
+        // hold her checklist answers and draft (saved on blur before the first
+        // breakdown) — a bare {messages} here silently wiped them on the first
+        // BREAK IT DOWN, confirmed live.
+        fresh={...(thread||{}),messages:[{role:'user',content:first}]};
+      }
+      thread=fresh;
       document.getElementById('wk-setup').style.display='none';
       document.getElementById('wk-followup').style.display='block';
     } else {
@@ -2737,23 +2815,29 @@ async function sendWork(){
     }
     renderThread(thread);
     wkScrollToLatest();
-    st.textContent = scene==='all' ? 'Reading the whole script…' : 'Working the scene…';
-    const systemPrompt = scene==='all' ? STORY_PROMPT : CRAFT_PROMPT;
+    st.textContent = coach ? 'Reading your scene…' : (scene==='all' ? 'Reading the whole script…' : 'Working the scene…');
+    const systemPrompt = coach ? COACH_PROMPT : (scene==='all' ? STORY_PROMPT : CRAFT_PROMPT);
     // Story analysis is a short, exploratory pass — always run it on the
     // light model regardless of the cheap-mode checkbox, which is reserved
     // for the actor to decide per scene breakdown, where sharpness matters more.
     const reply=await craftLLM(systemPrompt,thread.messages, scene==='all' ? true : isCheapMode(), getScriptRoute(curName), (a,m,w)=>wkRetryStatus(st,a,m,w));
     thread.messages.push({role:'assistant',content:reply});
     delete thread._revised; // fresh reply landed — the carried-over-after-a-revision flag no longer applies
-    setWork(scene,char,thread);
+    saveChat(scene,char,coach,thread);
     renderThread(thread);
     loadThread();
     wkScrollToLatest();
     st.textContent='';
-    if(isFreshBreakdown)maybeAutoGenre(); // fire-and-forget — best-effort, never blocks or overwrites a manual tag
+    if(isFreshBreakdown&&!coach)maybeAutoGenre(); // fire-and-forget — best-effort, never blocks or overwrites a manual tag
   }catch(e){wkRenderError(st,e,sendWork);}
   _wkJobRunning--;
   setWkButtonsBusy(false);
+}
+// "I'm stumped" — the one way to ask the coach chat to answer instead of ask.
+function coachStumped(){
+  if(_wkTab!=='coach')return;
+  document.getElementById('wk-msg').value="I'm stumped on the ones I haven't answered. Take a swing at each of those for me — your honest read, grounded in the lines — then tell me which of your reads you'd most want me to push back on.";
+  sendWork();
 }
 // Piggybacks on a breakdown you're already running rather than firing its
 // own separate paid pass — tiny extra output (a couple words) on the same
@@ -2856,9 +2940,10 @@ function workToText(thread){
   }).filter(Boolean).join('\n\n———\n\n');
 }
 function wkSceneLabel(scene){return scene==='all'?'Whole script':'Scene '+scene;}
+function wkModeTitle(){return _wkTab==='coach'?"Coach's questions":'Scene work';}
 async function copyWork(){
-  const scene=getWkScene(),char=document.getElementById('wk-char').value,thread=getWork(scene,char);if(!thread)return;
-  const full=`# OFFBOOK — Scene work: ${char} — ${wkSceneLabel(scene)}\n\n**Script:** ${curName||'—'}\n\n---\n\n`+workToText(thread);
+  const scene=getWkScene(),char=document.getElementById('wk-char').value,thread=wkChat(scene,char);if(!thread)return;
+  const full=`# OFFBOOK — ${wkModeTitle()}: ${char} — ${wkSceneLabel(scene)}\n\n**Script:** ${curName||'—'}\n\n---\n\n`+workToText(thread);
   const st=document.getElementById('wk-status');
   try{
     await navigator.clipboard.writeText(full);
@@ -2869,22 +2954,42 @@ async function copyWork(){
   setTimeout(()=>{if(st.textContent.startsWith('✓ Copied'))st.textContent='';},3000);
 }
 function downloadWorkMd(){
-  const scene=getWkScene(),char=document.getElementById('wk-char').value,thread=getWork(scene,char);if(!thread)return;
-  const full=`# OFFBOOK — Scene work: ${char} — ${wkSceneLabel(scene)}\n\n**Script:** ${curName||'—'}\n\n---\n\n`+workToText(thread);
-  const fname=((curName||'offbook').replace(/\.pdf$/i,''))+'_'+(scene==='all'?'whole':'scene'+scene)+'_'+char+'_breakdown.md';
+  const scene=getWkScene(),char=document.getElementById('wk-char').value,thread=wkChat(scene,char);if(!thread)return;
+  const full=`# OFFBOOK — ${wkModeTitle()}: ${char} — ${wkSceneLabel(scene)}\n\n**Script:** ${curName||'—'}\n\n---\n\n`+workToText(thread);
+  const fname=((curName||'offbook').replace(/\.pdf$/i,''))+'_'+(scene==='all'?'whole':'scene'+scene)+'_'+char+(_wkTab==='coach'?'_coach-questions.md':'_breakdown.md');
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([full],{type:'text/markdown'}));
   a.download=fname;document.body.appendChild(a);a.click();a.remove();
   const st=document.getElementById('wk-status');
   st.textContent='✓ Downloaded '+fname;
   setTimeout(()=>{if(st.textContent.startsWith('✓ Downloaded'))st.textContent='';},3000);
 }
+// Pure: what survives "Start over" on the BREAKDOWN. Only the conversation (and
+// its casting/instinct draft) is cleared — her gut-check answers, pre-take card
+// and coach's-questions chat are hers and stay. Returns the record to keep, or
+// null when there's nothing else worth keeping. Split out so it's testable.
+function threadAfterBreakdownReset(thread){
+  if(!thread)return null;
+  const kept={};
+  for(const k of ['pretake','checklist','coach'])if(thread[k])kept[k]=thread[k];
+  return Object.keys(kept).length?{messages:[],...kept}:null;
+}
 function resetWork(){
   const scene=getWkScene(),char=document.getElementById('wk-char').value;
+  const coach=_wkTab==='coach'&&scene!=='all';
+  if(coach){
+    if(!confirm("Clear the coach's questions chat for "+char+' — '+wkSceneLabel(scene)+'?'))return;
+    const base=getWork(scene,char);
+    if(base){delete base.coach;setWork(scene,char,base);}
+    loadThread();
+    return;
+  }
   if(!confirm('Clear the saved breakdown for '+char+' — '+wkSceneLabel(scene)+'?'))return;
   const key=workKey(scene,char);
+  const kept=threadAfterBreakdownReset(getWork(scene,char));
   if(curName){const arr=loadSaved();const s=arr.find(x=>x.name===curName);if(s&&s.work){delete s.work[key];if(scene===1)delete s.work[char];writeSaved(arr);}}
   delete _sessionWork[(curName||'demo')+'|'+key];
   delete _sessionWork[(curName||'demo')+'|'+char];
+  if(kept)setWork(scene,char,kept);
   document.getElementById('wk-brk').value='';document.getElementById('wk-inst').value='';
   loadThread();
 }
@@ -3260,7 +3365,7 @@ function goReh(){
   cleared=new Array(RL.length).fill(false);
   cur=0;nCleared=0;passed=false;mode='word';
   document.querySelectorAll('.mp').forEach((b,i)=>b.classList.toggle('on',i===1));
-  buildReh();updProg();show('reh-screen');scrollCur();updNavBtns();updateVoiceBtn();
+  buildReh();updProg();show('reh-screen');renderPretake();scrollCur();updNavBtns();updateVoiceBtn();
   getMic().catch(()=>{}); // warm the mic now so the first take starts instantly
 }
 
@@ -3378,12 +3483,16 @@ async function doWhisper(blob){
   }catch(e){setSt('⚠ '+(/fetch/i.test(e.message)?'Network/credits issue — check your key':e.message));}
 }
 
+// Typing in the pre-take card's inputs must not start a recording (Space) or
+// advance a line (Enter).
+const _typing=e=>/^(INPUT|TEXTAREA|SELECT)$/.test((e.target&&e.target.tagName)||'');
 document.addEventListener('keydown',e=>{
+  if(_typing(e))return;
   const on=document.getElementById('reh-screen').style.display!=='none';
   if(e.code==='Space'&&!spaceDown&&on){e.preventDefault();spaceDown=true;startRec();}
   if(e.code==='Enter'&&passed&&on){e.preventDefault();advance();}
 });
-document.addEventListener('keyup',e=>{if(e.code==='Space'){e.preventDefault();spaceDown=false;stopRec();}});
+document.addEventListener('keyup',e=>{if(_typing(e))return;if(e.code==='Space'){e.preventDefault();spaceDown=false;stopRec();}});
 
 let lastSpoken='';
 function evalLine(spoken){
@@ -3546,6 +3655,7 @@ function moveTo(idx){
   stopAudio();
   const old=document.getElementById('rl-'+RL[cur].id);if(old){old.classList.remove('cur');}
   cur=Math.max(0,Math.min(idx,RL.length-1));
+  renderPretake();
   passed=false;
   const nel=document.getElementById('rl-'+RL[cur].id);
   if(nel)nel.classList.add('cur');
@@ -3690,7 +3800,7 @@ function goEdit(){document.getElementById('cmp').classList.remove('show');stopAu
 // picks up right where you left off (isMine marks, scene splits, all preserved).
 function goLibrary(){show('step-upload');renderSaved();}
 function showDone(){releaseMic();show('done-screen');document.getElementById('dscore').textContent=`${nCleared} of ${RL.length} lines cleared · ${Math.round(nCleared/RL.length*100)}% accuracy`;}
-function restart(){cleared.fill(false);cur=0;nCleared=0;passed=false;mode='word';document.querySelectorAll('.mp').forEach((b,i)=>b.classList.toggle('on',i===1));updProg();buildReh();show('reh-screen');scrollCur();}
+function restart(){cleared.fill(false);cur=0;renderPretake();nCleared=0;passed=false;mode='word';document.querySelectorAll('.mp').forEach((b,i)=>b.classList.toggle('on',i===1));updProg();buildReh();show('reh-screen');scrollCur();}
 // Escapes quotes too, not just &/</> — several call sites interpolate esc()'s
 // result straight into a double-quoted HTML attribute (e.g. buildSceneTabs'
 // title="${esc(...)}"), and a scene heading or actor-renamed label containing

@@ -86,6 +86,7 @@ const scope = new Function(`
   ${extractFn('pickCarriedGenre')}
   ${extractFn('cleanGemErr')}
   ${extractFn('parsePretakeReply')}
+  ${extractFn('threadAfterBreakdownReset')}
   ${extractFn('getScriptRoute')}
   let curName='';
   let _sessionWork={};
@@ -96,9 +97,9 @@ const scope = new Function(`
   ${extractFn('sceneText')}
   let _logView='date';
   ${extractFn('logGroupKey')}
-  return { norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, recomputeScenes, setSL: v => SL = v, getSL: () => SL, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache: v => _scriptsCache = v, setCurName: v => curName = v, setSessionWork: v => _sessionWork = v, setSceneFilter: v => _sceneFilter = v, setLogView: v => _logView = v };
+  return { norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, recomputeScenes, setSL: v => SL = v, getSL: () => SL, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache: v => _scriptsCache = v, setCurName: v => curName = v, setSessionWork: v => _sessionWork = v, setSceneFilter: v => _sceneFilter = v, setLogView: v => _logView = v };
 `)();
-const { cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, setSL, getSL, recomputeScenes, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache, setCurName, setSessionWork, setSceneFilter, setLogView } = scope;
+const { cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, setSL, getSL, recomputeScenes, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache, setCurName, setSessionWork, setSceneFilter, setLogView } = scope;
 
 let pass = 0, fail = 0;
 function t(desc, actual, expected) {
@@ -545,6 +546,20 @@ t('parsePretakeReply: prose with no JSON at all is null', parsePretakeReply('Sur
 t('parsePretakeReply: an object with every field empty is null (nothing usable to offer)', parsePretakeReply('{"who":"","you":"","need":""}'), null);
 t('parsePretakeReply: malformed JSON is null, not a throw', parsePretakeReply('{"who": "a", '), null);
 t('parsePretakeReply: empty/undefined reply is null, not a throw', parsePretakeReply(undefined), null);
+
+// --- threadAfterBreakdownReset(): what "Start over" on the BREAKDOWN keeps.
+// It used to delete the whole record, taking her gut-check answers (and, once
+// they existed, the pre-take card and coach's-questions chat) down with it. ---
+t('threadAfterBreakdownReset: keeps the pre-take card, checklist and coach chat; drops the conversation and draft',
+  threadAfterBreakdownReset({ messages: [{ role: 'user', content: 'x' }], draft: { brk: 'a', inst: 'b' }, _revised: true,
+    pretake: { who: 'w' }, checklist: { verb: 'v' }, coach: { messages: [{ role: 'user', content: 'q' }] } }),
+  { messages: [], pretake: { who: 'w' }, checklist: { verb: 'v' }, coach: { messages: [{ role: 'user', content: 'q' }] } });
+t('threadAfterBreakdownReset: only keeps the fields that exist',
+  threadAfterBreakdownReset({ messages: [{ role: 'user', content: 'x' }], checklist: { verb: 'v' } }),
+  { messages: [], checklist: { verb: 'v' } });
+t('threadAfterBreakdownReset: nothing worth keeping returns null, so the record is removed outright',
+  threadAfterBreakdownReset({ messages: [{ role: 'user', content: 'x' }], draft: { brk: 'a' } }), null);
+t('threadAfterBreakdownReset: a missing thread is null, not a crash', threadAfterBreakdownReset(null), null);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
