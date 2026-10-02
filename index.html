@@ -389,6 +389,9 @@
     <input type="checkbox" id="wk-cheap" onchange="saveCheapMode()" style="width:auto">
     <span style="white-space:nowrap">💸 Cheap mode</span> <span class="wk-opt">mini model, lower cost, less sharp</span>
   </label>
+  <div style="margin-top:8px;font-size:12px;color:var(--muted)">This script runs on:
+    <span id="wk-route-badge" class="kfree" style="cursor:pointer;margin-left:4px" onclick="toggleScriptRoute(curName)"></span>
+  </div>
   <div class="scene-tabs" id="wk-tabs" style="margin-top:16px">
     <button class="scene-tab active" data-tab="breakdown" onclick="setWkTab('breakdown')">1 · Breakdown</button>
     <button class="scene-tab" data-tab="coach" onclick="setWkTab('coach')">2 · Coach's questions</button>
@@ -820,12 +823,12 @@ function loadScript(name){
 // don't want to read).
 function populateRoleSelect(){
   const sel=document.getElementById('role-select');if(!sel)return;
-  const chars=[...new Set(SL.filter(l=>!l.cut).map(l=>l.char))];
+  const chars=roleOptions(SL);
   sel.innerHTML=`<option value="">I'm playing…</option>`+chars.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('');
 }
 function selectRole(char){
   if(!char)return;
-  SL.forEach(l=>{if(!l.cut)l.isMine=(l.char===char);});
+  SL.forEach(l=>{if(!l.cut)l.isMine=(charKey(l.char)===charKey(char));});
   buildScript();
 }
 // Scene numbers are always derived, never stored directly — the actor can
@@ -963,6 +966,12 @@ function updateScriptRouteBadge(){
   const route=getScriptRoute(curName);
   b.textContent=scriptRouteLabel(route);
   b.title='This script uses '+(route==='free'?'the free Gemini route':'your paid OpenAI key')+' — click to switch';
+  // Same switch on the Scene Work page, where the free route's "busy" waits are felt.
+  const wb=document.getElementById('wk-route-badge');
+  if(wb){
+    wb.textContent=(route==='free'?'🆓 free (Gemini)':'🔒 paid (OpenAI)')+' — tap to switch';
+    wb.title=b.title;
+  }
 }
 // Lets an upload with a DIFFERENT filename than the original still carry
 // over unchanged scenes' work (same-filename revisions are detected
@@ -1572,7 +1581,7 @@ async function doPDF(file,opts){
       if(l&&l.heading){pendNewScene=true;pendHeading=(l.heading||'').trim();continue;}
       if(l&&l.action){pendAction=(pendAction+' '+l.action).trim();continue;}
       if(!l||(!l.char&&!l.text))continue;
-      if(l.char)l.char=cleanChar(l.char);  // "PORTIA (CONT'D)" -> "PORTIA"
+      if(l.char)l.char=charKey(l.char);  // "PORTIA (CONT'D)" / "Portia" -> "PORTIA"
       const prev=merged[merged.length-1];
       if(prev&&prev.char===l.char&&!pendAction&&!pendNewScene){
         prev.text=(prev.text+' '+l.text).trim();
@@ -1586,6 +1595,11 @@ async function doPDF(file,opts){
 
     SL=merged.map((l,i)=>({...l,text:cleanText(l.text),before:cleanText(l.before||''),after:cleanText(l.after||''),id:i,isMine:false}));
     recomputeScenes();
+    // A file named "..._side_3" is side 3 of something — label its single scene
+    // that, not just "Scene 1" (editable like any scene name).
+    if(new Set(SL.map(l=>l.scene)).size===1&&SL.length&&!SL[0].sceneLabel){
+      SL[0].sceneLabel=sideLabelFromFilename(file.name,SL[0].sceneHeading);
+    }
     _lastMerge=null; // a fresh line-id set — any pending undo-merge pointed at the PREVIOUS upload's lines
     _mergeSuggestion=null; // ditto — re-set below only if this upload's own carryover pass finds one
     // A scene number filtered from a PREVIOUS script (set via the scene tabs,
@@ -2035,6 +2049,28 @@ function ctxHtml(t){return t?`<div class="ctx">${esc(t)}</div>`:'';}
 // Strip a trailing parenthetical from a character name ("PORTIA (CONT'D)" -> "PORTIA")
 // so continued lines are the SAME character (one color, one selection).
 function cleanChar(c){return (c||'').replace(/\s*\([^)]*\)\s*$/,'').replace(/\s+/g,' ').trim();}
+// Pure: one identity per character however the model spelled it — "Charlotte",
+// "CHARLOTTE", "CHARLOTTE " and "CHARLOTTE (CONT'D)" are all the same person.
+// Without this the role dropdown listed variants as separate characters and
+// picking one silently missed the others' lines (confirmed live).
+function charKey(c){return cleanChar(c).toUpperCase().replace(/[:.,;]+$/,'').trim();}
+// Pure: the characters to offer in "I'm playing…", one entry per identity.
+function roleOptions(lines){
+  const out=[];
+  for(const l of lines||[]){if(l.cut)continue;const k=charKey(l.char);if(k&&!out.includes(k))out.push(k);}
+  return out;
+}
+// Pure: a default scene label for a script whose filename says which side/scene
+// it is ("Charlotte_side_3.pdf" -> "Side 3"), so a one-scene side isn't just
+// "Scene 1" when it's really side 3 of a project. Keeps the slugline after it.
+// '' when the filename carries no number.
+function sideLabelFromFilename(name,heading){
+  const m=/(?:^|[^a-z])(side|scene)s?[\s_\-#.]*(\d+)/i.exec(String(name||'').replace(/\.pdf$/i,''));
+  if(!m)return '';
+  const word=m[1][0].toUpperCase()+m[1].slice(1).toLowerCase();
+  const h=(heading||'').trim();
+  return `${word} ${m[2]}`+(h?' — '+h:'');
+}
 function dirHtml(d){const t=(d||'').replace(/^[\s(]+/,'').replace(/[\s)]+$/,'').trim();return t?` <span class="dir">(${esc(t)})</span>`:'';}
 // Give each character a stable color so you can tell who's speaking at a glance.
 const CHAR_COLORS=['#a78bfa','#4ade80','#fbbf24','#60a5fa','#f472b6','#2dd4bf','#fb923c','#f87171'];
@@ -2191,6 +2227,7 @@ function buildSceneTabs(){
 function setSceneFilter(s){_sceneFilter=s==='all'?'all':Number(s);buildScript();}
 function buildScript(){
   flushSceneEdit();
+  updateScriptRouteBadge(); // the paid/free badge by the script name — was only ever set on Load, so an uploaded script showed none
   _charMap={};
   renderMergeUndoBanner();
   renderMergeSuggestBanner();
@@ -2434,6 +2471,7 @@ function openWork(){
   populateWkChars(getWkScene());
   document.getElementById('wk-cheap').checked=localStorage.getItem('offbook_cheap')!=='0';
   _wkTab='breakdown';
+  updateScriptRouteBadge();
   loadThread();
   show('work-screen');
   window.scrollTo(0,0);
@@ -2515,6 +2553,7 @@ function nextRetryDecision(retries,isOverload){
   return {wait:FREE_RETRY_BACKOFF[retries||0],attempt:(retries||0)+1,max:FREE_RETRY_BACKOFF.length};
 }
 async function craftLLM(system,messages,forceLight,route,onRetry,_retries){
+  if(_retries===undefined)_switchPaidNow=false; // a fresh call starts clean
   if((route||uploadRoute)==='free'){
     if(!gemKey)throw new Error('Public mode needs a free Gemini key.');
     const contents=messages.map(m=>({role:m.role==='assistant'?'model':'user',parts:[{text:m.content}]}));
@@ -2531,7 +2570,9 @@ async function craftLLM(system,messages,forceLight,route,onRetry,_retries){
         const decision=nextRetryDecision(_retries,true);
         if(decision){
           if(onRetry)onRetry(decision.attempt,decision.max,decision.wait);
-          await new Promise(res=>setTimeout(res,decision.wait));
+          await new Promise(res=>{_retryWake=res;setTimeout(res,decision.wait);});
+          _retryWake=null;
+          if(_switchPaidNow){_switchPaidNow=false;return craftLLM(system,messages,forceLight,'paid',onRetry,0);}
           return craftLLM(system,messages,forceLight,route,onRetry,(_retries||0)+1);
         }
       }
@@ -2758,7 +2799,24 @@ Respond in plain sentences, no headers, no bullets, 5-8 sentences total covering
 // immediate way out instead of a dead-end error. Paid almost never lands
 // here, so the button only makes sense for a Gemini overload specifically.
 function wkRetryStatus(el,attempt,max,wait){
-  el.innerHTML='<span style="color:var(--muted)">⏳ Gemini\'s busy — retrying in '+Math.round(wait/1000)+'s (attempt '+attempt+'/'+max+')…</span>';
+  el.innerHTML='<span style="color:var(--muted)">⏳ Gemini\'s busy — retrying in '+Math.round(wait/1000)+'s (attempt '+attempt+'/'+max+')…</span> ';
+  // Don't make her sit through the whole queue (~a minute) — offer the way out
+  // right away, as long as there's an OpenAI key to switch to.
+  if(oai&&curName){
+    const btn=document.createElement('button');
+    btn.className='ghost';btn.style.cssText='margin-left:8px;padding:4px 10px;font-size:11px';
+    btn.textContent='⚡ Switch to paid now';
+    btn.onclick=switchToPaidNow;
+    el.appendChild(btn);
+  }
+}
+// Stops the free queue's retrying and re-sends the SAME request on the paid
+// route, and flips this script to paid so everything after it follows.
+let _switchPaidNow=false,_retryWake=null;
+function switchToPaidNow(){
+  if(curName&&getScriptRoute(curName)==='free')toggleScriptRoute(curName);
+  _switchPaidNow=true;
+  if(_retryWake)_retryWake(); // cut the current wait short instead of finishing it
 }
 function wkRenderError(el,e,retryFn){
   if(e.overload&&e.provider==='gemini'&&curName){

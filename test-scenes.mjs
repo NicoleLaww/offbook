@@ -107,6 +107,9 @@ const scope = new Function(`
   ${extractFn('wkViewState')}
   ${extractFn('looksLikeUnsplitScenes')}
   ${extractFn('parseSceneBreaks')}
+  ${extractFn('charKey')}
+  ${extractFn('roleOptions')}
+  ${extractFn('sideLabelFromFilename')}
   ${extractFn('commonNamePrefix')}
   ${extractFn('projectCharacters')}
   ${extractFn('projectGenre')}
@@ -136,9 +139,9 @@ const scope = new Function(`
   ${extractFn('setWork')}
   ${extractFn('wkChat')}
   ${extractFn('saveChat')}
-  return { norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, recomputeScenes, setSL: v => SL = v, getSL: () => SL, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, looksLikeUnsplitScenes, parseSceneBreaks, commonNamePrefix, projectCharacters, projectGenre, fillEmptyGenres, projectNames, playingChars, projectDigest, pickCarriedProject, joinRowItems, cleanPageText, isSlugline, filterHeadings, extractCompassOffer, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache: v => _scriptsCache = v, setCurName: v => curName = v, setWkTab: v => _wkTab = v, getScriptsCache: () => _scriptsCache, setSessionWork: v => _sessionWork = v, setSceneFilter: v => _sceneFilter = v, setLogView: v => _logView = v };
+  return { norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, recomputeScenes, setSL: v => SL = v, getSL: () => SL, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, looksLikeUnsplitScenes, parseSceneBreaks, charKey, roleOptions, sideLabelFromFilename, commonNamePrefix, projectCharacters, projectGenre, fillEmptyGenres, projectNames, playingChars, projectDigest, pickCarriedProject, joinRowItems, cleanPageText, isSlugline, filterHeadings, extractCompassOffer, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache: v => _scriptsCache = v, setCurName: v => curName = v, setWkTab: v => _wkTab = v, getScriptsCache: () => _scriptsCache, setSessionWork: v => _sessionWork = v, setSceneFilter: v => _sceneFilter = v, setLogView: v => _logView = v };
 `)();
-const { cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, setSL, getSL, recomputeScenes, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, looksLikeUnsplitScenes, parseSceneBreaks, commonNamePrefix, projectCharacters, projectGenre, fillEmptyGenres, projectNames, playingChars, projectDigest, pickCarriedProject, joinRowItems, cleanPageText, isSlugline, filterHeadings, extractCompassOffer, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache, setCurName, setWkTab, getScriptsCache, setSessionWork, setSceneFilter, setLogView } = scope;
+const { cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, setSL, getSL, recomputeScenes, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, looksLikeUnsplitScenes, parseSceneBreaks, charKey, roleOptions, sideLabelFromFilename, commonNamePrefix, projectCharacters, projectGenre, fillEmptyGenres, projectNames, playingChars, projectDigest, pickCarriedProject, joinRowItems, cleanPageText, isSlugline, filterHeadings, extractCompassOffer, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache, setCurName, setWkTab, getScriptsCache, setSessionWork, setSceneFilter, setLogView } = scope;
 
 let pass = 0, fail = 0;
 function t(desc, actual, expected) {
@@ -817,6 +820,25 @@ t('computeSavedUpdate: saving lines preserves the project link (it rides along l
   computeSavedUpdate([{ name: 'S.pdf', project: 'Charlotte', genre: 'noir', lines: [] }], 'S.pdf', [{ char: 'A', text: 'hi' }], undefined).updated[0].project, 'Charlotte');
 setScriptsCache([{ name: 'a', project: 'P', genre: 'noir' }, { name: 'b', project: 'P', genre: 'noir' }, { name: 'c', project: 'P', genre: 'noir' }, { name: 'd', genre: 'comedy' }]);
 t('genreCounts: a project\'s three sides count once, not three times', genreCounts(), { noir: 1, comedy: 1 });
+
+// --- charKey()/roleOptions(): "I'm playing…" must treat Charlotte, CHARLOTTE,
+// "CHARLOTTE " and "CHARLOTTE (CONT'D)" as one person. The dropdown used to list
+// the variants separately, so picking one silently missed the others' lines
+// (reproduced with Charlotte_side_3.pdf). ---
+t('charKey: case, trailing space, CONT’D and stray punctuation all collapse to one identity',
+  ['Charlotte', 'CHARLOTTE', 'CHARLOTTE ', 'CHARLOTTE (CONT’D)', 'charlotte:', '  Charlotte  '].map(charKey), Array(6).fill('CHARLOTTE'));
+t('charKey: different people stay different; missing is empty', [charKey('ABBY') === charKey('CHARLOTTE'), charKey(undefined)], [false, '']);
+t('roleOptions: one entry per character however it was spelled, first-seen order, cut lines ignored',
+  roleOptions([{ char: 'CHARLOTTE' }, { char: 'ABBY' }, { char: 'Charlotte' }, { char: 'ABBY (CONT’D)' }, { char: 'MAN', cut: true }]), ['CHARLOTTE', 'ABBY']);
+t('roleOptions: no lines is empty', roleOptions([]), []);
+
+// --- sideLabelFromFilename(): "Charlotte_side_3.pdf" is side 3, not just "Scene 1" ---
+t('sideLabelFromFilename: finds the side/scene number in common filename styles',
+  ['Charlotte_side_3.pdf', 'Charlotte SIDE #3.pdf', 'Pearl Hotel - Scene 12.pdf', 'sides2.pdf'].map(n => sideLabelFromFilename(n, '')),
+  ['Side 3', 'Side 3', 'Scene 12', 'Side 2']);
+t('sideLabelFromFilename: keeps the slugline after the side label', sideLabelFromFilename('Charlotte_side_3.pdf', 'INT. KITCHEN - NIGHT'), 'Side 3 — INT. KITCHEN - NIGHT');
+t('sideLabelFromFilename: a filename with no side/scene number gets no label (falls back to the slugline)',
+  [sideLabelFromFilename('Charlotte.pdf', 'INT. X'), sideLabelFromFilename('Inside_9.pdf', ''), sideLabelFromFilename(undefined, '')], ['', '', '']);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
