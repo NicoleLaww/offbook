@@ -392,7 +392,11 @@
   <div id="wk-pane-chat">
     <div id="wk-split-hint" style="display:none;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;background:rgba(251,191,36,.08);border:1px solid var(--amber);border-radius:8px;padding:10px 12px;font-size:12px;color:var(--amber);margin:14px 0">
       <span>Only one scene was detected in this script. If your sides have more than one, the AI will blend them — go back and tap “+ new scene” on the first line of each new scene.</span>
-      <button class="ghost" onclick="closeWork()">← Back to split</button>
+      <span style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="ghost" id="wk-breaks-btn" onclick="findSceneBreaks()">✨ Find scene breaks</button>
+        <button class="ghost" onclick="closeWork()">← Split by hand</button>
+      </span>
+      <div id="wk-breaks" style="flex-basis:100%;color:var(--text)"></div>
     </div>
     <div id="wk-byscene" style="display:none;margin-top:14px"></div>
     <div id="wk-coach-intro" class="am-sub" style="display:none">Your coach's questions, asked about your actual lines. It asks — you answer. Stumped? Say so and it'll take a swing for you to correct.</div>
@@ -2093,7 +2097,7 @@ OUTPUT (conversational prose; bullets only for real lists; bold the verbs with *
     * THE TRAP: fantasy version vs. what actually lives. Call the difference sharply.
   - REFERENCE CLIPS: 2-3 specific performances or scenes worth studying for THIS beat / register / physicality — with a one-line WHY each. Prefer a named scene ("the diner scene in Heat") over "watch X actor." She can watch a 2-minute clip; she can't rewatch a whole career.
   - WHAT'S MISSING: if a load-bearing detail wasn't provided (page count, episode, casting/directing name, tone reference), name it and ask ONE sharp clarifier. Not three.
-5. THE BEATS — one per beat: "Beat N — [what happens]. Verb: to **[transitive verb]**. [The action aimed at the partner, plus the gap if one opens — expected X, got Y, so the verb escalates/pivots.] Watch: [whose face, what you're reading, what it tells you next.] Subtext: [what she's actually saying underneath the line — the covert offer, threat, or plea]. Text-vs-subtext gap: [where they diverge — the sharper the gap, the more the beat sings]." When text and subtext match, the line is information; when they diverge, the actor plays the gap — that's where the performance lives.
+5. THE BEATS — the scene as ONE UNBROKEN CHAIN OF STEPS. Number every beat in order. The FIRST beat starts on the scene's first line and the LAST ends on its final line; each beat begins on exactly the line after the previous one ended — no line skipped, no gap, no overlap. If any stretch of lines belongs to no beat, you cut the beats wrong: redraw them so every line belongs to exactly one. One per beat: "Beat N — [first words of its opening line] → [last words of its closing line]: [what happens]. Verb: to **[transitive verb]**. [The action aimed at the partner, plus the gap if one opens — expected X, got Y, so the verb escalates/pivots.] Watch: [whose face, what you're reading, what it tells you next.] Subtext: [what she's actually saying underneath the line — the covert offer, threat, or plea]. Text-vs-subtext gap: [where they diverge — the sharper the gap, the more the beat sings]. Hand-off: [the one thing that has changed by the end of this beat that forces the next one — the step into Beat N+1; on the last beat, what the scene leaves her holding]." When text and subtext match, the line is information; when they diverge, the actor plays the gap — that's where the performance lives.
 6. THE SWING (optional — never force). Some tapes have a specific bet worth taking that most actors won't. Some don't. If nothing earns a swing, SAY SO plainly — "no swing worth taking here, play the truth end to end" — and skip the section. A forced swing is worse than no swing. When a swing IS worth taking, it lives in one of two layers:
   - PERFORMANCE SWING: one beat played in a way the reader didn't predict — and only when the counter-choice is TRUER than the surface (see: What Nine Actors Will Miss). Test it before you name it: does it still serve what she actually wants in the beat, or is it just unexpected for its own sake — unexpected-but-true is a swing, unexpected-but-empty is a stunt. The whisper on the line everyone shouts. The laugh on the moment everyone cries. The turn AWAY from camera when everyone turns in. One beat, named — because if you don't plan it, you won't take it under pressure.
   - PRODUCTION SWING: a self-tape-era move the actor-as-editor can take when the scene invites it and the room allows it:
@@ -2662,12 +2666,15 @@ function wkViewState(scene,tab,has,totalScenes){
 // one scene across a good number of live lines is the signature — the parser
 // found no scene breaks, so Scene Work would send everything as "Scene 1" and
 // the AI would blend them (a compass from one scene, an offer from another).
-// 12 is a guess at "too long to be a single short scene"; a genuinely long
-// single scene sees a harmless banner, never a block.
+// 12 lines / 250 words are guesses at "too long to be one short scene"; a
+// genuinely long single scene sees a harmless banner, never a block.
 function looksLikeUnsplitScenes(lines){
   const live=(lines||[]).filter(l=>!l.cut);
-  if(live.length<12)return false;
-  return new Set(live.map(l=>l.scene)).size===1;
+  if(new Set(live.map(l=>l.scene)).size!==1)return false;
+  // Long speeches mean few LINES for a lot of text — count words too, or a
+  // monologue-heavy packet of several scenes slips under a lines-only bar.
+  const words=live.reduce((n,l)=>n+((l.text||'').split(/\s+/).filter(Boolean).length),0);
+  return live.length>=12||words>=250;
 }
 // Pure: pulls the two-line north star (COMPASS / UNSPOKEN OFFER) out of a saved
 // breakdown reply, tolerating **bold** markers and list/quote prefixes. Either
@@ -2678,6 +2685,27 @@ function extractCompassOffer(reply){
     return m?m[1].replace(/[*_\s]+$/,'').trim()||null:null;
   };
   return {compass:grab('COMPASS'),offer:grab('UNSPOKEN OFFER')};
+}
+// Pure: reads the model's scene-break proposal — {"breaks":[{"line":N,
+// "reason":"..."}]} — into a clean sorted list. Tolerates fences/prose around the
+// JSON, and drops anything unusable: line 1 (always a scene start already),
+// out-of-range, non-integer or duplicate numbers. Never throws.
+function parseSceneBreaks(reply,lineCount){
+  let obj=null;
+  try{obj=JSON.parse(reply);}
+  catch(e){
+    const a=(reply||'').indexOf('{'),b=(reply||'').lastIndexOf('}');
+    if(a>=0&&b>a){try{obj=JSON.parse(reply.slice(a,b+1));}catch(e2){}}
+  }
+  const arr=obj&&Array.isArray(obj.breaks)?obj.breaks:[];
+  const seen=new Set(),out=[];
+  for(const b of arr){
+    const n=Number(b&&b.line);
+    if(!Number.isInteger(n)||n<2||n>lineCount||seen.has(n))continue;
+    seen.add(n);
+    out.push({line:n,reason:typeof b.reason==='string'?b.reason.trim():''});
+  }
+  return out.sort((x,y)=>x.line-y.line);
 }
 function wkChat(scene,char){
   const t=getWork(scene,char);
@@ -2854,6 +2882,59 @@ YOUR FIRST REPLY: open with one short line orienting her (character, scene) — 
 9. SINGLE-CAMERA PROBLEMS — Point out any stunts, weapons, multiple eyelines, volume spikes, or "talking head" stretches in the text that need business, and ask what business she'll add. If there are none, skip it.
 
 AFTER SHE ANSWERS: react to what she actually said. Push on thin, vague or generic answers ("what does that look like on her face?"), flag where an answer contradicts the text, and ask follow-ups — a few at a time, not another list. If she skips a question, leave it; don't nag. Plain conversational prose, no headers after the first reply.`;
+// Proposes where a script that never got split into scenes should be — a
+// proposal only, applied on her tap (same approval rule as every AI action).
+const SCENEBREAK_PROMPT=`You split an actor's audition sides into scenes. You'll get the dialogue as numbered lines, with any action/description in [brackets]. Find where a NEW scene starts: a jump in location, a jump in time, or a change in who is in the room, with no continuous flow from the line before.
+
+Be conservative: a change of topic inside one continuous conversation is NOT a new scene, and neither is a pause or a beat change. Sides packets often jump between non-contiguous scenes, so look for those jumps.
+
+Return ONLY a JSON object: {"breaks":[{"line":N,"reason":"short reason"}]} where N is the number of the FIRST line of each new scene. Never include line 1. If it is all one continuous scene, return {"breaks":[]}. No prose, no code fences.`;
+async function findSceneBreaks(){
+  const btn=document.getElementById('wk-breaks-btn'),res=document.getElementById('wk-breaks');
+  const live=SL.filter(l=>!l.cut);
+  if(!live.length)return;
+  btn.disabled=true;
+  res.innerHTML='<span style="color:var(--muted)">Reading for scene breaks…</span>';
+  const _esc=t=>(t||'').replace(/<\/?lines>/gi,'[tag]');
+  const body=live.map((l,i)=>`${i+1}. ${l.before?'['+l.before+'] ':''}${l.char}${l.direction?' ('+l.direction+')':''}: ${l.text}${l.after?' ['+l.after+']':''}`).join('\n');
+  try{
+    const reply=await craftLLM(SCENEBREAK_PROMPT,[{role:'user',content:`<lines>\n${_esc(body)}\n</lines>\n\nWhere do new scenes start?`}],true,getScriptRoute(curName),(a,m,w)=>wkRetryStatus(res,a,m,w));
+    const breaks=parseSceneBreaks(reply,live.length);
+    res.innerHTML='';
+    if(!breaks.length){
+      res.innerHTML='<span style="color:var(--muted)">No clear scene breaks found — it reads as one continuous scene. If it isn\'t, go back and tap “+ new scene” on the right line.</span>';
+    } else {
+      const box=document.createElement('div');box.className='saved-item';box.style.cssText='flex-direction:column;align-items:stretch;gap:6px;margin-top:8px';
+      const head=document.createElement('div');head.style.cssText='font-size:11px;color:var(--muted)';
+      head.textContent='Proposed split — '+(breaks.length+1)+' scenes. Nothing changes until you accept:';
+      box.appendChild(head);
+      breaks.forEach((b,i)=>{
+        const d=document.createElement('div');d.style.cssText='font-size:12px;line-height:1.5;color:var(--text)';
+        const t=(live[b.line-1].text||'');
+        const bold=document.createElement('b');bold.textContent='Scene '+(i+2)+' starts at line '+b.line+' ';
+        d.appendChild(bold);
+        d.appendChild(document.createTextNode('“'+t.slice(0,60)+(t.length>60?'…':'')+'”'+(b.reason?' — '+b.reason:'')));
+        box.appendChild(d);
+      });
+      const actions=document.createElement('div');actions.style.cssText='display:flex;gap:6px;flex-wrap:wrap';
+      const ok=document.createElement('button');ok.className='ghost';ok.textContent='✓ Split here';
+      ok.onclick=()=>{
+        breaks.forEach(b=>{live[b.line-1].sceneStart=true;});
+        recomputeScenes();
+        _lastMerge=null;
+        saveCurrent();
+        buildScript();   // keep the script view in step
+        openWork();      // reopen Scene Work so the scene picker reflects the new scenes
+      };
+      const no=document.createElement('button');no.className='ghost';no.textContent='✕ Dismiss';no.onclick=()=>{res.innerHTML='';};
+      actions.appendChild(ok);actions.appendChild(no);box.appendChild(actions);
+      res.appendChild(box);
+    }
+  }catch(e){
+    wkRenderError(res,e,findSceneBreaks);
+  }
+  btn.disabled=false;
+}
 const COACH_ASK_SUFFIX="\n\nAsk me the coach's questions — don't answer them for me.";
 async function sendWork(){
   const st=document.getElementById('wk-status');

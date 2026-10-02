@@ -73,6 +73,7 @@ function extractPrompt(name) {
 const COACH_PROMPT = extractPrompt('COACH_PROMPT');
 const PRETAKE_PROMPT = extractPrompt('PRETAKE_PROMPT');
 const CRAFT_PROMPT = extractPrompt('CRAFT_PROMPT');
+const SCENEBREAK_PROMPT = extractPrompt('SCENEBREAK_PROMPT');
 
 const scope = new Function(`
   ${extractFn('norm')}
@@ -105,6 +106,7 @@ const scope = new Function(`
   ${extractFn('threadAfterBreakdownReset')}
   ${extractFn('wkViewState')}
   ${extractFn('looksLikeUnsplitScenes')}
+  ${extractFn('parseSceneBreaks')}
   ${extractFn('extractCompassOffer')}
   ${extractFn('getScriptRoute')}
   let curName='';
@@ -121,9 +123,9 @@ const scope = new Function(`
   ${extractFn('setWork')}
   ${extractFn('wkChat')}
   ${extractFn('saveChat')}
-  return { norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, recomputeScenes, setSL: v => SL = v, getSL: () => SL, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, looksLikeUnsplitScenes, extractCompassOffer, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache: v => _scriptsCache = v, setCurName: v => curName = v, setWkTab: v => _wkTab = v, getScriptsCache: () => _scriptsCache, setSessionWork: v => _sessionWork = v, setSceneFilter: v => _sceneFilter = v, setLogView: v => _logView = v };
+  return { norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, recomputeScenes, setSL: v => SL = v, getSL: () => SL, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, looksLikeUnsplitScenes, parseSceneBreaks, extractCompassOffer, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache: v => _scriptsCache = v, setCurName: v => curName = v, setWkTab: v => _wkTab = v, getScriptsCache: () => _scriptsCache, setSessionWork: v => _sessionWork = v, setSceneFilter: v => _sceneFilter = v, setLogView: v => _logView = v };
 `)();
-const { cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, setSL, getSL, recomputeScenes, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, looksLikeUnsplitScenes, extractCompassOffer, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache, setCurName, setWkTab, getScriptsCache, setSessionWork, setSceneFilter, setLogView } = scope;
+const { cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, setSL, getSL, recomputeScenes, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, looksLikeUnsplitScenes, parseSceneBreaks, extractCompassOffer, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache, setCurName, setWkTab, getScriptsCache, setSessionWork, setSceneFilter, setLogView } = scope;
 
 let pass = 0, fail = 0;
 function t(desc, actual, expected) {
@@ -687,6 +689,37 @@ t('extractCompassOffer: a label mentioned mid-sentence is not mistaken for the o
 t('CRAFT_PROMPT: tells the model not to blend multiple scenes and to give each its own compass + offer',
   /ONE SCENE PER BREAKDOWN/.test(CRAFT_PROMPT) && /COMPASS and an UNSPOKEN OFFER for EACH scene/.test(CRAFT_PROMPT), true);
 t('COACH_PROMPT: flags multi-scene sides and asks about the first scene only', /MORE than one scene/.test(COACH_PROMPT) && /FIRST scene only/.test(COACH_PROMPT), true);
+
+// --- long speeches mean few LINES for lots of text: the lines-only bar let a
+// monologue-heavy multi-scene packet slip through (her real script did) ---
+const longSpeech = n => Array.from({ length: n }, () => ({ scene: 1, text: Array(100).fill('word').join(' ') }));
+t('looksLikeUnsplitScenes: only 3 lines, but ~300 words of speeches in one scene — flagged', looksLikeUnsplitScenes(longSpeech(3)), true);
+t('looksLikeUnsplitScenes: 2 short lines, few words — not flagged', looksLikeUnsplitScenes([{ scene: 1, text: 'hi there' }, { scene: 1, text: 'hello' }]), false);
+
+// --- parseSceneBreaks(): reads the AI's proposed scene starts. A bad proposal
+// must never corrupt the script's scene structure, so everything unusable is
+// dropped rather than trusted. ---
+t('parseSceneBreaks: reads a clean proposal, sorted',
+  parseSceneBreaks('{"breaks":[{"line":9,"reason":"cut to the hotel"},{"line":4,"reason":"time jump"}]}', 12),
+  [{ line: 4, reason: 'time jump' }, { line: 9, reason: 'cut to the hotel' }]);
+t('parseSceneBreaks: tolerates a code fence and chatty prose around the JSON',
+  parseSceneBreaks('Sure!\n```json\n{"breaks":[{"line":5,"reason":"new room"}]}\n```', 10), [{ line: 5, reason: 'new room' }]);
+t('parseSceneBreaks: never accepts line 1 (always a scene start already) or a line past the end',
+  parseSceneBreaks('{"breaks":[{"line":1},{"line":99},{"line":6}]}', 10), [{ line: 6, reason: '' }]);
+t('parseSceneBreaks: drops duplicates, fractions, and non-numeric lines',
+  parseSceneBreaks('{"breaks":[{"line":3},{"line":3},{"line":4.5},{"line":"x"},{"line":null}]}', 10), [{ line: 3, reason: '' }]);
+t('parseSceneBreaks: an empty proposal means one continuous scene', parseSceneBreaks('{"breaks":[]}', 10), []);
+t('parseSceneBreaks: garbage or missing replies are empty, not a throw',
+  [parseSceneBreaks('no json here', 10), parseSceneBreaks(undefined, 10), parseSceneBreaks('{"breaks":"nope"}', 10)], [[], [], []]);
+
+// --- the beats rule: "an unbroken chain of steps" (her feedback: beats skipped
+// lines — Beat 1 ended at "She exits", Beat 2 started at "Don't.") ---
+t('CRAFT_PROMPT: beats are one unbroken chain — first to last line, no gaps or overlap',
+  /ONE UNBROKEN CHAIN OF STEPS/.test(CRAFT_PROMPT) && /no line skipped, no gap, no overlap/.test(CRAFT_PROMPT), true);
+t('CRAFT_PROMPT: each beat names where it starts and ends, and hands off into the next',
+  /\[first words of its opening line\] → \[last words of its closing line\]/.test(CRAFT_PROMPT) && /Hand-off:/.test(CRAFT_PROMPT), true);
+t('SCENEBREAK_PROMPT: asks for the {"breaks":[{line,reason}]} shape, never line 1, and is conservative',
+  SCENEBREAK_PROMPT.includes('{"breaks":[{"line":N,"reason":"short reason"}]}') && /Never include line 1/.test(SCENEBREAK_PROMPT) && /conservative/.test(SCENEBREAK_PROMPT), true);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
