@@ -107,6 +107,19 @@ const scope = new Function(`
   ${extractFn('wkViewState')}
   ${extractFn('looksLikeUnsplitScenes')}
   ${extractFn('parseSceneBreaks')}
+  ${extractFn('commonNamePrefix')}
+  ${extractFn('projectCharacters')}
+  ${extractFn('projectGenre')}
+  ${extractFn('fillEmptyGenres')}
+  ${extractFn('projectNames')}
+  ${extractFn('playingChars')}
+  ${extractFn('projectDigest')}
+  ${extractFn('pickCarriedProject')}
+  ${extractFn('joinRowItems')}
+  ${extractFn('cleanPageText')}
+  ${extractFn('isSlugline')}
+  ${extractFn('normHeading')}
+  ${extractFn('filterHeadings')}
   ${extractFn('extractCompassOffer')}
   ${extractFn('getScriptRoute')}
   let curName='';
@@ -123,9 +136,9 @@ const scope = new Function(`
   ${extractFn('setWork')}
   ${extractFn('wkChat')}
   ${extractFn('saveChat')}
-  return { norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, recomputeScenes, setSL: v => SL = v, getSL: () => SL, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, looksLikeUnsplitScenes, parseSceneBreaks, extractCompassOffer, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache: v => _scriptsCache = v, setCurName: v => curName = v, setWkTab: v => _wkTab = v, getScriptsCache: () => _scriptsCache, setSessionWork: v => _sessionWork = v, setSceneFilter: v => _sceneFilter = v, setLogView: v => _logView = v };
+  return { norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, recomputeScenes, setSL: v => SL = v, getSL: () => SL, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, looksLikeUnsplitScenes, parseSceneBreaks, commonNamePrefix, projectCharacters, projectGenre, fillEmptyGenres, projectNames, playingChars, projectDigest, pickCarriedProject, joinRowItems, cleanPageText, isSlugline, filterHeadings, extractCompassOffer, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache: v => _scriptsCache = v, setCurName: v => curName = v, setWkTab: v => _wkTab = v, getScriptsCache: () => _scriptsCache, setSessionWork: v => _sessionWork = v, setSceneFilter: v => _sceneFilter = v, setLogView: v => _logView = v };
 `)();
-const { cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, setSL, getSL, recomputeScenes, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, looksLikeUnsplitScenes, parseSceneBreaks, extractCompassOffer, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache, setCurName, setWkTab, getScriptsCache, setSessionWork, setSceneFilter, setLogView } = scope;
+const { cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, setSL, getSL, recomputeScenes, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, looksLikeUnsplitScenes, parseSceneBreaks, commonNamePrefix, projectCharacters, projectGenre, fillEmptyGenres, projectNames, playingChars, projectDigest, pickCarriedProject, joinRowItems, cleanPageText, isSlugline, filterHeadings, extractCompassOffer, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache, setCurName, setWkTab, getScriptsCache, setSessionWork, setSceneFilter, setLogView } = scope;
 
 let pass = 0, fail = 0;
 function t(desc, actual, expected) {
@@ -720,6 +733,90 @@ t('CRAFT_PROMPT: each beat names where it starts and ends, and hands off into th
   /\[first words of its opening line\] → \[last words of its closing line\]/.test(CRAFT_PROMPT) && /Hand-off:/.test(CRAFT_PROMPT), true);
 t('SCENEBREAK_PROMPT: asks for the {"breaks":[{line,reason}]} shape, never line 1, and is conservative',
   SCENEBREAK_PROMPT.includes('{"breaks":[{"line":N,"reason":"short reason"}]}') && /Never include line 1/.test(SCENEBREAK_PROMPT) && /conservative/.test(SCENEBREAK_PROMPT), true);
+
+// --- joinRowItems(): PDF text -> rows. A real side (Charlotte_side_3.pdf)
+// stores every LETTER as its own item, and the old join(' ') handed the AI
+// "C H A R L O T T E   S I D E". Only a real gap between items is a word gap. ---
+const glyphs = (str, x0 = 0, w = 6) => [...str].map((c, i) => ({ x: x0 + i * w, w, s: c }));
+t('joinRowItems: letter-per-item text (touching glyphs) joins into words, not "C H A R L O T T E"',
+  joinRowItems([...glyphs('CHARLOTTE'), { x: 54, w: 6, s: ' ' }, ...glyphs('SIDE', 60)]), 'CHARLOTTE SIDE');
+t('joinRowItems: whole-word items with a gap between them still get a space',
+  joinRowItems([{ x: 0, w: 30, s: 'Hello' }, { x: 40, w: 30, s: 'world' }]), 'Hello world');
+t('joinRowItems: an explicit space item is respected, not doubled',
+  joinRowItems([{ x: 0, w: 30, s: 'Hello' }, { x: 30, w: 6, s: ' ' }, { x: 36, w: 30, s: 'world' }]), 'Hello world');
+t('joinRowItems: items that touch (kerned pairs) are glued', joinRowItems([{ x: 0, w: 12, s: 'AB' }, { x: 12, w: 6, s: 'C' }]), 'ABC');
+t('joinRowItems: a single item and an empty row are fine', [joinRowItems([{ x: 0, w: 10, s: 'Hi' }]), joinRowItems([])], ['Hi', '']);
+
+// --- cleanPageText(): furniture removed before a page reaches the AI ---
+t('cleanPageText: drops a page number at the top edge of the page ("22..")', cleanPageText('22..\nABBY\nHi.'), 'ABBY\nHi.');
+t('cleanPageText: drops a stray (CONT’D) / CONTINUED: row anywhere',
+  cleanPageText('ABBY\nHi.\n(CONT’D)\nABBY\nThere.\nCONTINUED:'), 'ABBY\nHi.\nABBY\nThere.');
+t('cleanPageText: leaves a numeric dialogue line in the middle of the page alone',
+  cleanPageText('A\nB\nC\nCHARLOTTE\n3.\nD\nE\nF'), 'A\nB\nC\nCHARLOTTE\n3.\nD\nE\nF');
+t('cleanPageText: a character cue that merely contains CONT’D is left to cleanChar, not deleted',
+  cleanPageText('ABBY (CONT’D)\nHi.'), 'ABBY (CONT’D)\nHi.');
+
+// --- isSlugline()/filterHeadings(): on that same side the AI turned ONE scene
+// into THREE by flagging "(CONT'D)" and repeating the slugline on page 2. ---
+t('isSlugline: real sluglines, with scene numbers and slash forms',
+  ['INT. KITCHEN - NIGHT', 'EXT. STREET - DAY', '12A INT. HOUSE', 'INT./EXT. CAR - DAY', 'I/E. CAR'].map(isSlugline), [true, true, true, true, true]);
+t('isSlugline: a title, a CONT’D, or prose is not a slugline',
+  ['CHARLOTTE SIDE #3', '(CONT’D)', 'Interesting choice.', ''].map(isSlugline), [false, false, false, false]);
+const SRC = 'CHARLOTTE SIDE #3\nINT. KITCHEN/DINING ROOM - MORRISON HOUSE - NIGHT\nCharlotte pours.\n';
+t('filterHeadings: keeps the one real slugline; drops a title, a (CONT’D), and the same slugline repeated on the next page',
+  filterHeadings([{ heading: 'CHARLOTTE SIDE #3' }, { heading: 'INT. KITCHEN/DINING ROOM - MORRISON HOUSE - NIGHT' }, { char: 'A', text: 'x' },
+    { heading: '(CONT’D)' }, { char: 'B', text: 'y' }, { heading: 'INT. KITCHEN/DINING ROOM - MORRISON HOUSE - NIGHT' }, { char: 'A', text: 'z' }], SRC)
+    .filter(l => l.heading).map(l => l.heading),
+  ['INT. KITCHEN/DINING ROOM - MORRISON HOUSE - NIGHT']);
+t('filterHeadings: a genuinely different second slugline is kept (a real scene change)',
+  filterHeadings([{ heading: 'INT. KITCHEN - NIGHT' }, { char: 'A', text: 'x' }, { heading: 'EXT. ROOF - DAY' }, { char: 'B', text: 'y' }], 'INT. KITCHEN - NIGHT\nEXT. ROOF - DAY').filter(l => l.heading).length, 2);
+t('filterHeadings: a slugline the AI invented (not in the PDF text) is dropped',
+  filterHeadings([{ heading: 'INT. BASEMENT - NIGHT' }, { char: 'A', text: 'x' }], 'INT. KITCHEN - NIGHT').filter(l => l.heading).length, 0);
+t('filterHeadings: with no source text (OCR\'d pages) it still drops non-sluglines but trusts real-looking ones',
+  filterHeadings([{ heading: '(CONT’D)' }, { heading: 'INT. KITCHEN - NIGHT' }], null).map(l => l.heading), ['INT. KITCHEN - NIGHT']);
+t('filterHeadings: dialogue and action elements pass through untouched, in order',
+  filterHeadings([{ char: 'A', text: 'x' }, { action: 'She sits.' }, { char: 'B', text: 'y' }], SRC), [{ char: 'A', text: 'x' }, { action: 'She sits.' }, { char: 'B', text: 'y' }]);
+
+// --- PROJECTS: several sides linked by a shared `project` name (Charlotte
+// #1/#2/#3, or Charlotte in October and Abby in November). ---
+t('commonNamePrefix: "Charlotte_side_1/2/3.pdf" -> "Charlotte"',
+  commonNamePrefix(['Charlotte_side_1.pdf', 'Charlotte_side_2.pdf', 'Charlotte_side_3.pdf']), 'Charlotte');
+t('commonNamePrefix: spaces and a trailing number/word are trimmed ("Pearl Hotel Sides 1 / 2")',
+  commonNamePrefix(['Pearl Hotel Sides 1.pdf', 'Pearl Hotel Sides 2.pdf']), 'Pearl Hotel');
+t('commonNamePrefix: case-insensitive match', commonNamePrefix(['CHARLOTTE side 1.pdf', 'Charlotte side 2.pdf']), 'CHARLOTTE');
+t('commonNamePrefix: unrelated names have no shared start — empty, so no project is invented',
+  [commonNamePrefix(['Alpha.pdf', 'Beta.pdf']), commonNamePrefix(['A_1.pdf', 'A_2.pdf'])], ['', '']);
+t('commonNamePrefix: a single file or nothing is empty', [commonNamePrefix(['Charlotte.pdf']), commonNamePrefix([]), commonNamePrefix(undefined)], ['', '', '']);
+
+const L = (char, extra) => ({ char, text: 'line', ...extra });
+const sideA = { name: 'Charlotte_side_1.pdf', project: 'Charlotte', genre: '', lines: [L('CHARLOTTE', { isMine: true }), L('ABBY'), L('CHARLOTTE (CONT’D)')] };
+const sideB = { name: 'Charlotte_side_2.pdf', project: 'Charlotte', genre: 'psychological thriller', lines: [L('CHARLOTTE'), L('MAN'), L('ABBY', { cut: true })] };
+t('projectCharacters: every character across the sides with how many sides they appear in, most-frequent first (cut lines and CONT’D cues handled)',
+  projectCharacters([sideA, sideB]), [{ char: 'CHARLOTTE', sides: 2 }, { char: 'ABBY', sides: 1 }, { char: 'MAN', sides: 1 }]);
+t('projectCharacters: no scripts is empty', projectCharacters([]), []);
+t('projectGenre: the first non-empty tag among the members', projectGenre([sideA, sideB]), 'psychological thriller');
+t('projectGenre: none tagged is empty', projectGenre([{ genre: '' }, {}]), '');
+{
+  const arr = [{ project: 'P', genre: '' }, { project: 'P', genre: 'noir' }, { project: 'P' }, { project: 'Other', genre: '' }, { genre: '' }];
+  const n = fillEmptyGenres(arr, 'P', 'thriller');
+  t('fillEmptyGenres: fills only EMPTY members of that project, never overwrites a tag she set, never touches other projects',
+    { n, genres: arr.map(s => s.genre) }, { n: 2, genres: ['thriller', 'noir', 'thriller', '', ''] });
+}
+t('projectNames: distinct project names in first-seen order', projectNames([{ project: 'B' }, { project: 'A' }, { project: 'B' }, {}]), ['B', 'A']);
+t('playingChars: the characters on the lines she marked, de-duplicated, cut lines ignored',
+  playingChars([L('ABBY', { isMine: true }), L('CHARLOTTE'), L('ABBY (CONT’D)', { isMine: true }), L('MAN', { isMine: true, cut: true })]), ['ABBY']);
+t('projectDigest: the OTHER sides\' dialogue only, labelled by file, cut lines skipped',
+  projectDigest([sideA, sideB], 'Charlotte_side_1.pdf', 1000), '— Charlotte_side_2.pdf\nCHARLOTTE: line\nMAN: line');
+t('projectDigest: each side is capped so a long side can\'t flood the prompt',
+  projectDigest([{ name: 'X', lines: [{ char: 'A', text: 'x'.repeat(500) }] }], 'other', 50).includes('…'), true);
+t('projectDigest: no other sides (or only empty ones) is an empty string',
+  [projectDigest([sideA], 'Charlotte_side_1.pdf', 100), projectDigest([{ name: 'E', lines: [] }], 'x', 100)], ['', '']);
+t('pickCarriedProject: keeps the project already on this filename; else a contributing candidate\'s; else empty (revision carryover must not drop the link — same bug class as genre)',
+  [pickCarriedProject({ project: 'P' }, [{ project: 'Q' }]), pickCarriedProject(undefined, [{}, { project: 'Q' }]), pickCarriedProject(undefined, [{}])], ['P', 'Q', '']);
+t('computeSavedUpdate: saving lines preserves the project link (it rides along like genre)',
+  computeSavedUpdate([{ name: 'S.pdf', project: 'Charlotte', genre: 'noir', lines: [] }], 'S.pdf', [{ char: 'A', text: 'hi' }], undefined).updated[0].project, 'Charlotte');
+setScriptsCache([{ name: 'a', project: 'P', genre: 'noir' }, { name: 'b', project: 'P', genre: 'noir' }, { name: 'c', project: 'P', genre: 'noir' }, { name: 'd', genre: 'comedy' }]);
+t('genreCounts: a project\'s three sides count once, not three times', genreCounts(), { noir: 1, comedy: 1 });
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
