@@ -661,6 +661,10 @@ t('saveChat (breakdown): writes the thread it was given under the scene key',
 // changes behavior with no error. Pin the decisions we made. ---
 t('COACH_PROMPT: states the core rule — ask, don\'t answer', COACH_PROMPT.includes('YOUR JOB IS TO ASK, NOT TO ANSWER'), true);
 t('COACH_PROMPT: only answers when she explicitly says she\'s stumped', /UNLESS she explicitly asks/.test(COACH_PROMPT), true);
+t('COACH_PROMPT: after she answers, it gives its own take on each answer (ask first, then a second opinion)',
+  /give her YOUR TAKE on that answer/.test(COACH_PROMPT) && /BEFORE she has answered it/.test(COACH_PROMPT) && /for each question she answered/.test(COACH_PROMPT), true);
+t('COACH_PROMPT: skipped questions are left alone, not answered for her',
+  /Questions she skipped: leave them, don't nag, and don't answer them for her/.test(COACH_PROMPT), true);
 t('COACH_PROMPT: questions 1-9 are all present', [1, 2, 3, 4, 5, 6, 7, 8, 9].every(n => new RegExp(`^${n}\\. [A-Z]`, 'm').test(COACH_PROMPT)), true);
 t('COACH_PROMPT: question 10 (takes) stays dropped', /^10\./m.test(COACH_PROMPT) || /TAKES/.test(COACH_PROMPT), false);
 t('COACH_PROMPT: bait-and-switch is conditional — only asked when the scene has a flip',
@@ -819,6 +823,8 @@ t('pickCarriedProject: keeps the project already on this filename; else a contri
 t('computeSavedUpdate: saving lines preserves the project link (it rides along like genre)',
   computeSavedUpdate([{ name: 'S.pdf', project: 'Charlotte', genre: 'noir', lines: [] }], 'S.pdf', [{ char: 'A', text: 'hi' }], undefined).updated[0].project, 'Charlotte');
 setScriptsCache([{ name: 'a', project: 'P', genre: 'noir' }, { name: 'b', project: 'P', genre: 'noir' }, { name: 'c', project: 'P', genre: 'noir' }, { name: 'd', genre: 'comedy' }]);
+t('computeSavedUpdate: saving lines preserves the "it\'s one scene" confirmation (it rides along like genre/project)',
+  computeSavedUpdate([{ name: 'S.pdf', oneScene: true, lines: [] }], 'S.pdf', [{ char: 'A', text: 'hi' }], undefined).updated[0].oneScene, true);
 t('genreCounts: a project\'s three sides count once, not three times', genreCounts(), { noir: 1, comedy: 1 });
 
 // --- charKey()/roleOptions(): "I'm playing…" must treat Charlotte, CHARLOTTE,

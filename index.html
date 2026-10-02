@@ -403,11 +403,12 @@
       <span style="display:flex;gap:6px;flex-wrap:wrap">
         <button class="ghost" id="wk-breaks-btn" onclick="findSceneBreaks()">✨ Find scene breaks</button>
         <button class="ghost" onclick="closeWork()">← Split by hand</button>
+        <button class="ghost" onclick="confirmOneScene()">✓ It's one scene</button>
       </span>
       <div id="wk-breaks" style="flex-basis:100%;color:var(--text)"></div>
     </div>
     <div id="wk-byscene" style="display:none;margin-top:14px"></div>
-    <div id="wk-coach-intro" class="am-sub" style="display:none">Your coach's questions, asked about your actual lines. It asks — you answer. Stumped? Say so and it'll take a swing for you to correct.</div>
+    <div id="wk-coach-intro" class="am-sub" style="display:none">Your coach's questions, asked about your actual lines. It asks, you answer, then it gives you its take on what you said. Stumped on one? Say so and it'll take a swing for you to correct.</div>
     <div id="wk-setup">
       <label class="wk-l">Casting / character breakdown <span class="wk-opt">optional</span></label>
       <textarea id="wk-brk" rows="2" placeholder="Paste the casting breakdown or character description…" onblur="saveWkDraft()"></textarea>
@@ -3000,6 +3001,14 @@ function parseSceneBreaks(reply,lineCount){
   }
   return out.sort((x,y)=>x.line-y.line);
 }
+// She's told us this really is one scene — remember it for this script so the
+// "only one scene detected" banner stops nagging (a long single scene looks
+// exactly like several unsplit ones to the heuristic).
+function confirmOneScene(){
+  const arr=loadSaved();const me=arr.find(x=>x.name===curName);
+  if(me){me.oneScene=true;writeSaved(arr);}
+  const h=document.getElementById('wk-split-hint');if(h)h.style.display='none';
+}
 function wkChat(scene,char){
   const t=getWork(scene,char);
   return (_wkTab==='coach'&&scene!=='all')?((t&&t.coach)||null):t;
@@ -3079,7 +3088,8 @@ function loadThread(){
   const revBanner=document.getElementById('wk-revised-banner');
   if(revBanner)revBanner.style.display=(scene==='all'&&base&&base._revised)?'block':'none';
   show('wk-genall-wrap',v.genAll);
-  show('wk-split-hint',v.chatPane&&looksLikeUnsplitScenes(SL),'flex');
+  const meRec=loadSaved().find(x=>x.name===curName);
+  show('wk-split-hint',v.chatPane&&looksLikeUnsplitScenes(SL)&&!(meRec&&meRec.oneScene),'flex');
   renderByScene(scene,char,totalScenes);
   _editingIdx=-1;
   renderThread(chat);
@@ -3176,10 +3186,11 @@ function setWkButtonsBusy(busy){
 // voice as the rest of the tool, but the whole point is that she does the
 // thinking: it only answers when she explicitly says she's stumped, and then
 // hands it back for her to correct.
-const COACH_PROMPT=`You are an actor's script-analysis coach, working from her coach's framework before a self-tape or audition. YOUR JOB IS TO ASK, NOT TO ANSWER. She does the thinking; you make her sharper by asking about her actual scene.
+const COACH_PROMPT=`You are an actor's script-analysis coach, working from her coach's framework before a self-tape or audition. YOUR JOB IS TO ASK, NOT TO ANSWER — first. She does the thinking and commits to her own answers; only AFTER she has answered do you give her your take, so she gets a real second opinion instead of an answer to copy.
 
 RULES:
-- Never answer the questions for her, never slip your own read in as a hint, and never say what the "right" choice is — UNLESS she explicitly asks you to ("I'm stumped," "take a swing," "what do you think"). If she does, give your honest read grounded in the lines, then hand it back and ask what she'd change — she corrects you.
+- Ask first. Never answer a question for her, slip your own read in as a hint, or say what the "right" choice is BEFORE she has answered it — UNLESS she explicitly asks you to ("I'm stumped," "take a swing," "what do you think"). If she does, give your honest read grounded in the lines, then hand it back and ask what she'd change — she corrects you.
+- Once she HAS answered a question, give her YOUR TAKE on that answer — your honest read of it, grounded in the lines: where you agree and why, where you'd push back or see it differently, and what you'd add. That is the point of the exercise: she commits first, then hears a second opinion. Take a position — she debates, and would rather correct a strong read than shrug at a soft one.
 - Make every question specific to THIS scene: point at actual lines (quote a few words) so she can find them. A generic question she could answer without the sides is a failure.
 - Same direct voice as the rest of her tool — no hedging. Banned: "perhaps," "one could argue," "you might consider." Terse.
 
@@ -3194,7 +3205,7 @@ YOUR FIRST REPLY: open with one short line orienting her (character, scene) — 
 8. BAIT-AND-SWITCH — ONLY if the scene actually has a flip (a moment where it turns out to be something other than what it seemed). If it doesn't, skip this question entirely — don't ask it, don't mention it, and keep the other numbers as they are.
 9. SINGLE-CAMERA PROBLEMS — Point out any stunts, weapons, multiple eyelines, volume spikes, or "talking head" stretches in the text that need business, and ask what business she'll add. If there are none, skip it.
 
-AFTER SHE ANSWERS: react to what she actually said. Push on thin, vague or generic answers ("what does that look like on her face?"), flag where an answer contradicts the text, and ask follow-ups — a few at a time, not another list. If she skips a question, leave it; don't nag. Plain conversational prose, no headers after the first reply.`;
+AFTER SHE ANSWERS: for each question she answered, reply under that question's number and short name — first what holds up in her answer, then YOUR TAKE (agree, push back, or add), pointing at specific lines. Push on thin, vague or generic answers ("what does that look like on her face?") and flag where an answer contradicts the text. Questions she skipped: leave them, don't nag, and don't answer them for her. If she answers only some, take only those. End with the one or two answers you'd most want her to rethink, asked as a question. After that, plain conversational prose — no headers, no new list of questions.`;
 // Proposes where a script that never got split into scenes should be — a
 // proposal only, applied on her tap (same approval rule as every AI action).
 const SCENEBREAK_PROMPT=`You split an actor's audition sides into scenes. You'll get the dialogue as numbered lines, with any action/description in [brackets]. Find where a NEW scene starts: a jump in location, a jump in time, or a change in who is in the room, with no continuous flow from the line before.
