@@ -408,7 +408,7 @@
       <div id="wk-breaks" style="flex-basis:100%;color:var(--text)"></div>
     </div>
     <div id="wk-byscene" style="display:none;margin-top:14px"></div>
-    <div id="wk-coach-intro" class="am-sub" style="display:none">Your coach's questions, asked about your actual lines. It asks, you answer, then it gives you its take on what you said. Stumped on one? Say so and it'll take a swing for you to correct.</div>
+    <div id="wk-coach-intro" class="am-sub" style="display:none">Your coach's questions, asked about your actual lines. It asks, you answer (any, none or all — each question has its own box), then it gives you its take on what you said. Stumped on one? Tap it and the coach takes a swing for you to correct.</div>
     <div id="wk-setup">
       <label class="wk-l">Casting / character breakdown <span class="wk-opt">optional</span></label>
       <textarea id="wk-brk" rows="2" placeholder="Paste the casting breakdown or character description…" onblur="saveWkDraft()"></textarea>
@@ -417,6 +417,7 @@
     </div>
     <div id="wk-revised-banner" style="display:none;background:rgba(251,191,36,.1);border:1px solid var(--amber);border-radius:8px;padding:10px 12px;font-size:12px;color:var(--amber);margin-bottom:12px">⚠ The script changed since this Story Analysis ran — hit 🔄 Redo below for an accurate read.</div>
     <div id="wk-out" class="wk-out"></div>
+    <div id="wk-coach-cards" style="display:none;margin-top:16px"></div>
     <div id="wk-genall-wrap" style="display:none;margin-top:14px">
       <button class="ghost" id="wk-genall" onclick="generateAllScenes()" style="width:100%">🎬 Generate all scene breakdowns</button>
     </div>
@@ -3001,6 +3002,29 @@ function parseSceneBreaks(reply,lineCount){
   }
   return out.sort((x,y)=>x.line-y.line);
 }
+// Pure: the numbered questions out of the coach's first reply — "3. THE SCENE'S
+// JOB — Why does this scene exist…" -> {n:3,name:"THE SCENE'S JOB",text:"Why…"}.
+// A blank line ends a question, so a closing remark after the last one isn't
+// glued onto it. Questions the coach skipped (8 and 9 are conditional) simply
+// aren't there; numbers are kept as the coach gave them.
+function parseCoachQuestions(reply){
+  const out=[];let cur=null;
+  for(const raw of String(reply||'').split('\n')){
+    if(!raw.trim()){cur=null;continue;}
+    const m=/^\s*\**\s*(\d{1,2})[.)]\s*\**\s*([A-Z][A-Z0-9 \/&'’-]{2,40}?)\s*\**\s*(?:\s[—–-]+\s|[—–:]+)\s*(.*)$/.exec(raw);
+    if(m){cur={n:Number(m[1]),name:m[2].trim(),text:m[3].trim()};out.push(cur);continue;}
+    if(cur)cur.text+=' '+raw.trim();
+  }
+  return out;
+}
+// Pure: her filled-in answers as one message for the coach — only the questions
+// she actually answered, in question order. '' when she wrote nothing.
+function buildCoachAnswerMessage(questions,drafts){
+  return (questions||[]).map(q=>{
+    const a=((drafts||{})[q.n]||'').trim();
+    return a?`${q.n}. ${q.name} — ${a}`:'';
+  }).filter(Boolean).join('\n\n');
+}
 // She's told us this really is one scene — remember it for this script so the
 // "only one scene detected" banner stops nagging (a long single scene looks
 // exactly like several unsplit ones to the heuristic).
@@ -3008,6 +3032,66 @@ function confirmOneScene(){
   const arr=loadSaved();const me=arr.find(x=>x.name===curName);
   if(me){me.oneScene=true;writeSaved(arr);}
   const h=document.getElementById('wk-split-hint');if(h)h.style.display='none';
+}
+// The coach's questions as things she can answer one by one — every box is
+// optional, answers are kept as drafts so she can come back to them, and each
+// question has its own "I'm stumped" for a swing at just that one. Only shown in
+// the coach tab, for questions not yet sent.
+function renderCoachCards(coachTab,chat){
+  const box=document.getElementById('wk-coach-cards');if(!box)return;
+  const qs=(coachTab&&chat&&chat.messages&&chat.messages[1]&&chat.messages[1].role==='assistant')?parseCoachQuestions(chat.messages[1].content):[];
+  const answered=(chat&&chat.answered)||[];
+  const remaining=qs.filter(q=>!answered.includes(q.n));
+  if(qs.length<2||!remaining.length){box.style.display='none';box.innerHTML='';return;}
+  box.style.display='block';box.innerHTML='';
+  const h=document.createElement('div');h.className='wk-cl-h';h.textContent='Your answers — all optional';box.appendChild(h);
+  const sub=document.createElement('div');sub.style.cssText='font-size:11px;color:var(--muted);margin:2px 0 8px';
+  sub.textContent='Answer any, none, or all. Leave blanks and come back later — or tap "stumped" on one and the coach takes a swing for you to correct.';
+  box.appendChild(sub);
+  const drafts=chat.drafts||{};
+  remaining.forEach(q=>{
+    const card=document.createElement('div');card.className='saved-item';card.style.cssText='flex-direction:column;align-items:stretch;gap:6px;margin-top:8px';
+    const t=document.createElement('div');t.style.cssText='font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)';t.textContent=q.n+'. '+q.name;
+    const qt=document.createElement('div');qt.style.cssText='font-size:13px;line-height:1.5';qt.textContent=q.text;
+    const ta=document.createElement('textarea');ta.rows=2;ta.id='wk-cq-'+q.n;ta.placeholder='Your answer (optional)';ta.value=drafts[q.n]||'';
+    ta.addEventListener('blur',()=>saveCoachDraft(q.n,ta.value));
+    const row=document.createElement('div');row.style.cssText='display:flex;gap:6px';
+    const st=document.createElement('button');st.className='ghost';st.style.cssText='padding:4px 10px;font-size:11px';st.textContent="🤝 I'm stumped on this one";
+    st.onclick=()=>coachStumpedOn(q.n,q.name);
+    row.appendChild(st);
+    card.appendChild(t);card.appendChild(qt);card.appendChild(ta);card.appendChild(row);box.appendChild(card);
+  });
+  const send=document.createElement('button');send.className='big';send.style.cssText='width:100%;margin-top:12px';send.textContent='SEND MY ANSWERS →';
+  send.onclick=sendCoachAnswers;box.appendChild(send);
+}
+function saveCoachDraft(n,val){
+  const scene=getWkScene(),char=document.getElementById('wk-char').value;
+  const chat=wkChat(scene,char);if(!chat||_wkTab!=='coach')return;
+  chat.drafts=chat.drafts||{};
+  if((chat.drafts[n]||'')===val)return;
+  chat.drafts[n]=val;
+  saveChat(scene,char,true,chat);
+}
+async function sendCoachAnswers(){
+  const scene=getWkScene(),char=document.getElementById('wk-char').value;
+  const chat=wkChat(scene,char);if(!chat||_wkTab!=='coach')return;
+  const qs=parseCoachQuestions(chat.messages[1]&&chat.messages[1].content);
+  // Read what's on screen (a box she's typing in hasn't blurred yet).
+  const drafts={...(chat.drafts||{})};
+  qs.forEach(q=>{const el=document.getElementById('wk-cq-'+q.n);if(el)drafts[q.n]=el.value;});
+  const msg=buildCoachAnswerMessage(qs,drafts);
+  if(!msg){document.getElementById('wk-status').textContent='Write at least one answer first — or tap "stumped" on one.';return;}
+  const sentNums=qs.filter(q=>(drafts[q.n]||'').trim()).map(q=>q.n);
+  chat.answered=[...new Set([...(chat.answered||[]),...sentNums])];
+  chat.drafts=Object.fromEntries(Object.entries(drafts).filter(([n])=>!sentNums.includes(Number(n))));
+  saveChat(scene,char,true,chat);
+  document.getElementById('wk-msg').value=msg;
+  await sendWork();
+}
+function coachStumpedOn(n,name){
+  if(_wkTab!=='coach')return;
+  document.getElementById('wk-msg').value=`I'm stumped on question ${n} (${name}). Take a swing at that one — your honest read, grounded in the lines — then hand it back and ask what I'd change.`;
+  sendWork();
 }
 function wkChat(scene,char){
   const t=getWork(scene,char);
@@ -3089,6 +3173,7 @@ function loadThread(){
   if(revBanner)revBanner.style.display=(scene==='all'&&base&&base._revised)?'block':'none';
   show('wk-genall-wrap',v.genAll);
   const meRec=loadSaved().find(x=>x.name===curName);
+  renderCoachCards(v.tab==='coach',chat);
   show('wk-split-hint',v.chatPane&&looksLikeUnsplitScenes(SL)&&!(meRec&&meRec.oneScene),'flex');
   renderByScene(scene,char,totalScenes);
   _editingIdx=-1;
@@ -3259,7 +3344,14 @@ async function findSceneBreaks(){
   }
   btn.disabled=false;
 }
-const COACH_ASK_SUFFIX="\n\nAsk me the coach's questions — don't answer them for me.";
+// The first message of a coach chat — scoped to the FIRST round only. It used to
+// say a bare "don't answer them for me", which stayed in the thread's history
+// and kept the coach asking even after she'd answered.
+const COACH_ASK_SUFFIX="\n\nAsk me the coach's questions first — don't answer them for me. Once I've answered, give me your take on my answers.";
+const COACH_ASK_SUFFIX_OLD="\n\nAsk me the coach's questions — don't answer them for me.";
+// Sent with every coach reply (not stored): she has answered, so this is the
+// round where the coach gives its take. Skipped for the "I'm stumped" request.
+const COACH_TAKE_NUDGE="\n\n[Coach: I've answered. Per your instructions, now give me your take on each answer I gave — what holds up, where you'd push back or add, pointing at lines — then ask which one or two I should rethink. Don't answer the questions I skipped.]";
 async function sendWork(){
   const st=document.getElementById('wk-status');
   const scene=getWkScene(),char=document.getElementById('wk-char').value;
@@ -3296,6 +3388,11 @@ async function sendWork(){
       if(!msg){_wkJobRunning--;setWkButtonsBusy(false);return;}
       thread.messages.push({role:'user',content:msg});
       document.getElementById('wk-msg').value='';
+      // A chat started under the old wording still carries "don't answer them" in
+      // its first message — bring it in line so it can't override the new rules.
+      if(coach&&thread.messages[0]&&thread.messages[0].content.endsWith(COACH_ASK_SUFFIX_OLD)){
+        thread.messages[0].content=thread.messages[0].content.slice(0,-COACH_ASK_SUFFIX_OLD.length)+COACH_ASK_SUFFIX;
+      }
     }
     renderThread(thread);
     wkScrollToLatest();
@@ -3304,7 +3401,16 @@ async function sendWork(){
     // Story analysis is a short, exploratory pass — always run it on the
     // light model regardless of the cheap-mode checkbox, which is reserved
     // for the actor to decide per scene breakdown, where sharpness matters more.
-    const reply=await craftLLM(systemPrompt,thread.messages, scene==='all' ? true : isCheapMode(), getScriptRoute(curName), (a,m,w)=>wkRetryStatus(st,a,m,w));
+    // What's actually sent: for a coach chat's answer round, the last message gets
+    // a one-line reminder to give its take (not stored, not shown in the thread).
+    let payload=thread.messages;
+    if(coach&&!isFreshBreakdown){
+      const last=thread.messages[thread.messages.length-1];
+      if(last&&last.role==='user'&&!/^I'm stumped/i.test(last.content)){
+        payload=thread.messages.map((m,i)=>i===thread.messages.length-1?{...m,content:m.content+COACH_TAKE_NUDGE}:m);
+      }
+    }
+    const reply=await craftLLM(systemPrompt,payload, scene==='all' ? true : isCheapMode(), getScriptRoute(curName), (a,m,w)=>wkRetryStatus(st,a,m,w));
     thread.messages.push({role:'assistant',content:reply});
     delete thread._revised; // fresh reply landed — the carried-over-after-a-revision flag no longer applies
     saveChat(scene,char,coach,thread);

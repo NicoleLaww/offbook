@@ -106,7 +106,12 @@ const scope = new Function(`
   ${extractFn('threadAfterBreakdownReset')}
   ${extractFn('wkViewState')}
   ${extractFn('looksLikeUnsplitScenes')}
+  ${extractConst('COACH_ASK_SUFFIX')}
+  ${extractConst('COACH_ASK_SUFFIX_OLD')}
+  ${extractConst('COACH_TAKE_NUDGE')}
   ${extractFn('parseSceneBreaks')}
+  ${extractFn('parseCoachQuestions')}
+  ${extractFn('buildCoachAnswerMessage')}
   ${extractFn('charKey')}
   ${extractFn('roleOptions')}
   ${extractFn('sideLabelFromFilename')}
@@ -139,9 +144,9 @@ const scope = new Function(`
   ${extractFn('setWork')}
   ${extractFn('wkChat')}
   ${extractFn('saveChat')}
-  return { norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, recomputeScenes, setSL: v => SL = v, getSL: () => SL, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, looksLikeUnsplitScenes, parseSceneBreaks, charKey, roleOptions, sideLabelFromFilename, commonNamePrefix, projectCharacters, projectGenre, fillEmptyGenres, projectNames, playingChars, projectDigest, pickCarriedProject, joinRowItems, cleanPageText, isSlugline, filterHeadings, extractCompassOffer, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache: v => _scriptsCache = v, setCurName: v => curName = v, setWkTab: v => _wkTab = v, getScriptsCache: () => _scriptsCache, setSessionWork: v => _sessionWork = v, setSceneFilter: v => _sceneFilter = v, setLogView: v => _logView = v };
+  return { COACH_ASK_SUFFIX, COACH_ASK_SUFFIX_OLD, COACH_TAKE_NUDGE, norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, recomputeScenes, setSL: v => SL = v, getSL: () => SL, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, looksLikeUnsplitScenes, parseSceneBreaks, parseCoachQuestions, buildCoachAnswerMessage, charKey, roleOptions, sideLabelFromFilename, commonNamePrefix, projectCharacters, projectGenre, fillEmptyGenres, projectNames, playingChars, projectDigest, pickCarriedProject, joinRowItems, cleanPageText, isSlugline, filterHeadings, extractCompassOffer, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache: v => _scriptsCache = v, setCurName: v => curName = v, setWkTab: v => _wkTab = v, getScriptsCache: () => _scriptsCache, setSessionWork: v => _sessionWork = v, setSceneFilter: v => _sceneFilter = v, setLogView: v => _logView = v };
 `)();
-const { cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, setSL, getSL, recomputeScenes, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, looksLikeUnsplitScenes, parseSceneBreaks, charKey, roleOptions, sideLabelFromFilename, commonNamePrefix, projectCharacters, projectGenre, fillEmptyGenres, projectNames, playingChars, projectDigest, pickCarriedProject, joinRowItems, cleanPageText, isSlugline, filterHeadings, extractCompassOffer, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache, setCurName, setWkTab, getScriptsCache, setSessionWork, setSceneFilter, setLogView } = scope;
+const { COACH_ASK_SUFFIX, COACH_ASK_SUFFIX_OLD, COACH_TAKE_NUDGE, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, setSL, getSL, recomputeScenes, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, looksLikeUnsplitScenes, parseSceneBreaks, parseCoachQuestions, buildCoachAnswerMessage, charKey, roleOptions, sideLabelFromFilename, commonNamePrefix, projectCharacters, projectGenre, fillEmptyGenres, projectNames, playingChars, projectDigest, pickCarriedProject, joinRowItems, cleanPageText, isSlugline, filterHeadings, extractCompassOffer, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache, setCurName, setWkTab, getScriptsCache, setSessionWork, setSceneFilter, setLogView } = scope;
 
 let pass = 0, fail = 0;
 function t(desc, actual, expected) {
@@ -665,6 +670,12 @@ t('COACH_PROMPT: after she answers, it gives its own take on each answer (ask fi
   /give her YOUR TAKE on that answer/.test(COACH_PROMPT) && /BEFORE she has answered it/.test(COACH_PROMPT) && /for each question she answered/.test(COACH_PROMPT), true);
 t('COACH_PROMPT: skipped questions are left alone, not answered for her',
   /Questions she skipped: leave them, don't nag, and don't answer them for her/.test(COACH_PROMPT), true);
+t('COACH_ASK_SUFFIX: scoped to the first round — asks first, then promises its take after she answers (not a bare "don\'t answer")',
+  /questions first/.test(COACH_ASK_SUFFIX) && /give me your take on my answers/.test(COACH_ASK_SUFFIX), true);
+t('COACH_ASK_SUFFIX_OLD: the old wording is what existing chats carry, so it must differ from the new suffix',
+  COACH_ASK_SUFFIX_OLD !== COACH_ASK_SUFFIX && COACH_ASK_SUFFIX_OLD.includes("don't answer them for me."), true);
+t('COACH_TAKE_NUDGE: tells the coach to give its take on the answers she gave and not touch the ones she skipped',
+  /give me your take on each answer I gave/.test(COACH_TAKE_NUDGE) && /Don't answer the questions I skipped/.test(COACH_TAKE_NUDGE), true);
 t('COACH_PROMPT: questions 1-9 are all present', [1, 2, 3, 4, 5, 6, 7, 8, 9].every(n => new RegExp(`^${n}\\. [A-Z]`, 'm').test(COACH_PROMPT)), true);
 t('COACH_PROMPT: question 10 (takes) stays dropped', /^10\./m.test(COACH_PROMPT) || /TAKES/.test(COACH_PROMPT), false);
 t('COACH_PROMPT: bait-and-switch is conditional — only asked when the scene has a flip',
@@ -845,6 +856,27 @@ t('sideLabelFromFilename: finds the side/scene number in common filename styles'
 t('sideLabelFromFilename: keeps the slugline after the side label', sideLabelFromFilename('Charlotte_side_3.pdf', 'INT. KITCHEN - NIGHT'), 'Side 3 — INT. KITCHEN - NIGHT');
 t('sideLabelFromFilename: a filename with no side/scene number gets no label (falls back to the slugline)',
   [sideLabelFromFilename('Charlotte.pdf', 'INT. X'), sideLabelFromFilename('Inside_9.pdf', ''), sideLabelFromFilename(undefined, '')], ['', '', '']);
+
+// --- the coach's questions as answerable cards (parseCoachQuestions /
+// buildCoachAnswerMessage): she wants each question in front of her with the
+// option — not an obligation — to respond. ---
+const COACH_REPLY = "Let's focus on Charlotte in the Morrison kitchen with Abby.\n\n1. GENRE / TONE — Breakdown calls out *The Housemaid*. Where are the ceiling and floor?\n\n2. AUDIENCE RESPONSE — In one sentence, what should the audience feel?\n\n3. THE SCENE'S JOB — Why does this scene exist?\n\n9. SINGLE-CAMERA PROBLEMS — What business will you add?";
+t('parseCoachQuestions: pulls each numbered question with its short name, keeping the coach\'s numbering (8 skipped when there\'s no flip)',
+  parseCoachQuestions(COACH_REPLY).map(q => [q.n, q.name]), [[1, 'GENRE / TONE'], [2, 'AUDIENCE RESPONSE'], [3, "THE SCENE'S JOB"], [9, 'SINGLE-CAMERA PROBLEMS']]);
+t('parseCoachQuestions: the question text follows the dash, the orienting line is not a question',
+  parseCoachQuestions(COACH_REPLY)[0].text, 'Breakdown calls out *The Housemaid*. Where are the ceiling and floor?');
+t('parseCoachQuestions: tolerates **bold** names and "1)" numbering',
+  parseCoachQuestions('**1. GENRE / TONE** — what show?\n\n2) AUDIENCE RESPONSE: how should they feel?').map(q => [q.n, q.name, q.text]),
+  [[1, 'GENRE / TONE', 'what show?'], [2, 'AUDIENCE RESPONSE', 'how should they feel?']]);
+t('parseCoachQuestions: a closing remark after a blank line isn\'t glued onto the last question',
+  parseCoachQuestions('1. GENRE / TONE — what show?\n\nAnswer any you like.')[0].text, 'what show?');
+t('parseCoachQuestions: prose with no numbered questions, or no input, is empty', [parseCoachQuestions('Sure — take me through beat 3.'), parseCoachQuestions(undefined)], [[], []]);
+
+const QS = [{ n: 1, name: 'GENRE / TONE' }, { n: 2, name: 'AUDIENCE RESPONSE' }, { n: 3, name: "THE SCENE'S JOB" }];
+t('buildCoachAnswerMessage: only the questions she answered, in question order',
+  buildCoachAnswerMessage(QS, { 3: 'to hook the leads', 1: 'The Housemaid' }), '1. GENRE / TONE — The Housemaid\n\n3. THE SCENE\'S JOB — to hook the leads');
+t('buildCoachAnswerMessage: blank/whitespace answers are skipped; nothing written is empty (so nothing is sent)',
+  [buildCoachAnswerMessage(QS, { 1: '   ', 2: '' }), buildCoachAnswerMessage(QS, {}), buildCoachAnswerMessage([], undefined)], ['', '', '']);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
