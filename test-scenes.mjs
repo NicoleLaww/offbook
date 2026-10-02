@@ -85,6 +85,7 @@ const scope = new Function(`
   ${extractFn('genreCounts')}
   ${extractFn('pickCarriedGenre')}
   ${extractFn('cleanGemErr')}
+  ${extractFn('parsePretakeReply')}
   ${extractFn('getScriptRoute')}
   let curName='';
   let _sessionWork={};
@@ -95,9 +96,9 @@ const scope = new Function(`
   ${extractFn('sceneText')}
   let _logView='date';
   ${extractFn('logGroupKey')}
-  return { norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, recomputeScenes, setSL: v => SL = v, getSL: () => SL, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache: v => _scriptsCache = v, setCurName: v => curName = v, setSessionWork: v => _sessionWork = v, setSceneFilter: v => _sceneFilter = v, setLogView: v => _logView = v };
+  return { norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, recomputeScenes, setSL: v => SL = v, getSL: () => SL, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache: v => _scriptsCache = v, setCurName: v => curName = v, setSessionWork: v => _sessionWork = v, setSceneFilter: v => _sceneFilter = v, setLogView: v => _logView = v };
 `)();
-const { cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, setSL, getSL, recomputeScenes, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache, setCurName, setSessionWork, setSceneFilter, setLogView } = scope;
+const { cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, setSL, getSL, recomputeScenes, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache, setCurName, setSessionWork, setSceneFilter, setLogView } = scope;
 
 let pass = 0, fail = 0;
 function t(desc, actual, expected) {
@@ -523,6 +524,27 @@ t('logGroupKey genre: a general (no scriptName) note also groups under "Ungenred
 setLogView('pattern');
 t('logGroupKey pattern: groups by the entry\'s theme tag', logGroupKey({ theme: 'escalation' }), 'escalation');
 t('logGroupKey pattern: an untagged note groups under "Untagged"', logGroupKey({}), 'Untagged');
+
+// --- parsePretakeReply(): turns the model's reply for the pre-take card
+// ("Draft for me") into {who,you,need}. craftLLM has no JSON-mode constraint,
+// so replies can arrive bare, fenced, or wrapped in prose — and an unusable
+// one must return null so the UI says so instead of filling empty fields. ---
+t('parsePretakeReply: a bare JSON object parses',
+  parsePretakeReply('{"who":"a nurse","you":"the doctor","need":"her to own it"}'),
+  { who: 'a nurse', you: 'the doctor', need: 'her to own it' });
+t('parsePretakeReply: JSON inside a ```json fence parses',
+  parsePretakeReply('```json\n{"who":"a","you":"b","need":"c"}\n```'),
+  { who: 'a', you: 'b', need: 'c' });
+t('parsePretakeReply: JSON wrapped in chatty prose parses',
+  parsePretakeReply('Sure! Here you go: {"who":"a","you":"b","need":"c"} Hope that helps.'),
+  { who: 'a', you: 'b', need: 'c' });
+t('parsePretakeReply: trims whitespace and turns non-string/missing fields into empty strings',
+  parsePretakeReply('{"who":"  a  ","you":5}'),
+  { who: 'a', you: '', need: '' });
+t('parsePretakeReply: prose with no JSON at all is null', parsePretakeReply('Sure! Here you go.'), null);
+t('parsePretakeReply: an object with every field empty is null (nothing usable to offer)', parsePretakeReply('{"who":"","you":"","need":""}'), null);
+t('parsePretakeReply: malformed JSON is null, not a throw', parsePretakeReply('{"who": "a", '), null);
+t('parsePretakeReply: empty/undefined reply is null, not a throw', parsePretakeReply(undefined), null);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

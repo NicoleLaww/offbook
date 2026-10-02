@@ -371,6 +371,21 @@
       <input type="checkbox" id="wk-cheap" onchange="saveCheapMode()" style="width:auto">
       💸 Cheap mode — mini model, lower cost, less sharp <span class="wk-opt">(scene breakdowns, OpenAI route only — story analysis always runs cheap)</span>
     </label>
+    <div id="wk-pretake" class="wk-checklist">
+      <div class="wk-cl-h">Pre-take card</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:2px">Three lines to glance at right before you record</div>
+      <label class="wk-l">Who am I?</label>
+      <textarea id="wk-pt-who" rows="1" placeholder="e.g. a nurse covering a double shift who just lost a patient" onblur="savePretakeFields()"></textarea>
+      <label class="wk-l">Who are you? <span class="wk-opt">my scene partner</span></label>
+      <textarea id="wk-pt-you" rows="1" placeholder="e.g. the doctor who signed off on the chart" onblur="savePretakeFields()"></textarea>
+      <label class="wk-l">What do I need? <span class="wk-opt">from them, right now</span></label>
+      <textarea id="wk-pt-need" rows="1" placeholder="e.g. for her to admit it was her call" onblur="savePretakeFields()"></textarea>
+      <div class="wk-actions-secondary" style="margin-top:10px">
+        <button class="ghost" id="wk-pt-draftbtn" onclick="draftPretake()">✨ Draft for me</button>
+        <span style="font-size:10px;color:var(--muted);align-self:center">Proposes answers from the scene — nothing is saved until you accept</span>
+      </div>
+      <div id="wk-pt-draft" class="wk-cl-result"></div>
+    </div>
     <div id="wk-checklist" class="wk-checklist">
       <div class="wk-cl-h">Pre-take checklist</div>
       <label class="wk-l">What am I literally DOING? <span class="wk-opt">the verb, not the feeling</span></label>
@@ -2331,6 +2346,99 @@ function saveChecklistFields(){
   thread.checklist.direction=document.getElementById('wk-cl-direction').value;
   setWork(scene,char,thread);
 }
+// PRE-TAKE CARD — her coach's three questions (who am I / who are you / what
+// do I need), one short line each: the glance-sized version of a breakdown,
+// for the moment right before recording. Typed by her, saved on the same
+// per-scene per-character thread as the checklist; "Draft for me" only ever
+// PROPOSES, nothing is written until she accepts (same rule as every other AI
+// action here).
+const PRETAKE_PROMPT=`You are drafting an actor's pre-take card: three one-line answers she can glance at right before recording, where a full breakdown would be too much. Same direct craft voice as the rest of her tool — banned: "perhaps," "one could argue," "you might consider."
+
+The three questions:
+1. who — WHO AM I: the specific person walking in right now, in one short line — circumstance and what they're carrying, not a backstory essay and not a mood.
+2. you — WHO ARE YOU: what the scene partner is to me in this scene, in one short line — their role and leverage over me, not a description of their personality.
+3. need — WHAT DO I NEED: the one thing I need from them right now, in one short line — something they can do or give me, aimed at the partner. Not a feeling, not a result I'm trying to play.
+
+Rules: each answer is ONE line, 15 words max. Ground every answer in the sides — never invent facts that aren't there or are not strongly implied; if the sides are thin, make the best inference and keep it plain. First person for "who" and "need" ("a nurse who...", "for her to..."), the partner in second person or by role for "you".
+
+Return ONLY a JSON object: {"who":"...","you":"...","need":"..."} — no prose, no code fences.`;
+// Pure: turns the model's reply into {who,you,need}, tolerating a bare JSON
+// object or JSON wrapped in prose/code fences (craftLLM has no
+// response_format constraint — it's shared with plain-prose callers). Returns
+// null when there's nothing usable, so the caller can say so instead of
+// silently filling empty fields. Split out so it's testable (test-scenes.mjs).
+function parsePretakeReply(reply){
+  let obj=null;
+  try{obj=JSON.parse(reply);}
+  catch(e){
+    const a=(reply||'').indexOf('{'),b=(reply||'').lastIndexOf('}');
+    if(a>=0&&b>a){try{obj=JSON.parse(reply.slice(a,b+1));}catch(e2){}}
+  }
+  if(!obj||typeof obj!=='object')return null;
+  const s=v=>typeof v==='string'?v.trim():'';
+  const out={who:s(obj.who),you:s(obj.you),need:s(obj.need)};
+  return (out.who||out.you||out.need)?out:null;
+}
+function renderPretake(thread){
+  const pt=(thread&&thread.pretake)||{};
+  document.getElementById('wk-pt-who').value=pt.who||'';
+  document.getElementById('wk-pt-you').value=pt.you||'';
+  document.getElementById('wk-pt-need').value=pt.need||'';
+  document.getElementById('wk-pt-draft').innerHTML='';
+}
+function savePretakeFields(){
+  const scene=getWkScene(),char=document.getElementById('wk-char').value;
+  if(!char||scene==='all')return;
+  const who=document.getElementById('wk-pt-who').value,you=document.getElementById('wk-pt-you').value,need=document.getElementById('wk-pt-need').value;
+  const existing=getWork(scene,char);
+  if(!existing&&!who.trim()&&!you.trim()&&!need.trim())return; // don't create an empty thread just because a blank field lost focus
+  const thread=existing||{messages:[]};
+  thread.pretake={who,you,need};
+  setWork(scene,char,thread);
+}
+async function draftPretake(){
+  const scene=getWkScene(),char=document.getElementById('wk-char').value;
+  if(!SL.length||!char||scene==='all')return;
+  const btn=document.getElementById('wk-pt-draftbtn'),resEl=document.getElementById('wk-pt-draft');
+  btn.disabled=true;
+  resEl.innerHTML='<span style="color:var(--muted)">Thinking…</span>';
+  const _esc=t=>(t||'').replace(/<\/?scene>/gi,'[tag]');
+  const scopeNote=`Scene ${scene}${sceneNameFor(scene)?` (${sceneNameFor(scene)})`:''}`;
+  const prompt=`I'm playing: ${char} — ${scopeNote}\n\n<scene>\n${_esc(sceneText(scene))}\n</scene>\n\nDraft my pre-take card.`;
+  try{
+    const reply=await craftLLM(PRETAKE_PROMPT,[{role:'user',content:prompt}],true,getScriptRoute(curName),(a,m,w)=>wkRetryStatus(resEl,a,m,w));
+    // She may have switched scene/character while this was in flight — the
+    // card on screen now belongs to something else, so drop the result rather
+    // than offer a draft for the wrong scene.
+    if(getWkScene()!==scene||document.getElementById('wk-char').value!==char){btn.disabled=false;return;}
+    const draft=parsePretakeReply(reply);
+    if(!draft){resEl.innerHTML='<span style="color:var(--accent)">⚠ Couldn\'t read that draft — try again.</span>';btn.disabled=false;return;}
+    resEl.innerHTML='';
+    const box=document.createElement('div');box.className='saved-item';box.style.cssText='flex-direction:column;align-items:stretch;gap:6px';
+    [['Who am I?',draft.who],['Who are you?',draft.you],['What do I need?',draft.need]].forEach(([label,val])=>{
+      const row=document.createElement('div');row.style.fontSize='13px';
+      const b=document.createElement('b');b.style.color='var(--muted)';b.textContent=label+' ';
+      row.appendChild(b);row.appendChild(document.createTextNode(val||'—'));
+      box.appendChild(row);
+    });
+    const actions=document.createElement('div');actions.style.cssText='display:flex;gap:6px';
+    const use=document.createElement('button');use.className='ghost';use.textContent='✓ Use this';
+    use.onclick=()=>{
+      if(draft.who)document.getElementById('wk-pt-who').value=draft.who;
+      if(draft.you)document.getElementById('wk-pt-you').value=draft.you;
+      if(draft.need)document.getElementById('wk-pt-need').value=draft.need;
+      savePretakeFields();
+      resEl.innerHTML='';
+    };
+    const skip=document.createElement('button');skip.className='ghost';skip.textContent='✕ Dismiss';
+    skip.onclick=()=>{resEl.innerHTML='';};
+    actions.appendChild(use);actions.appendChild(skip);box.appendChild(actions);
+    resEl.appendChild(box);
+  }catch(e){
+    wkRenderError(resEl,e,draftPretake);
+  }
+  btn.disabled=false;
+}
 const GUTCHECK_PROMPT=`You are a fast, sharp scene-work gut-check for an actor prepping a self-tape or audition — same direct craft voice as a full breakdown (Mamet/Meisner/McKee synthesized), but here you give ONE short, direct read, not a full breakdown. No hedging — banned: "perhaps," "one could argue," "you might consider."
 
 The actor is about to answer three questions before they rehearse: (1) what their character is literally DOING in the scene — a playable verb, not a mood; (2) where the scene sits structurally, and what the story needs it to DO there (e.g. a scene near the top of Act 2 in a pilot has to hook, not settle); (3) whether the beat calls for escalating or de-escalating, and which they're choosing.
@@ -2500,6 +2608,7 @@ function loadThread(){
   // the beat you're about to play — unanswerable for a whole multi-scene
   // packet, so it only makes sense once a specific scene is picked.
   document.getElementById('wk-checklist').style.display=scene==='all'?'none':'block';
+  document.getElementById('wk-pretake').style.display=scene==='all'?'none':'block'; // per-scene, same reason as the checklist
   document.getElementById('wk-followup').style.display=has?'block':'none';
   const sec=document.getElementById('wk-secondary');if(sec)sec.style.display=has?'flex':'none';
   document.getElementById('wk-go').textContent=has?'SEND →':'BREAK IT DOWN';
@@ -2512,6 +2621,7 @@ function loadThread(){
   _editingIdx=-1;
   renderThread(thread);
   renderChecklist(thread);
+  renderPretake(thread);
 }
 // Wrap user + script data in tags and escape any closing tags so the LLM treats scene/story content as DATA, not instructions.
 function _escTags(t){return (t||'').replace(/<\/?(scene|breakdown|instinct|story)>/gi,'[tag]');}
@@ -2560,7 +2670,11 @@ async function sendWork(){
       const brk=document.getElementById('wk-brk').value.trim();
       const inst=document.getElementById('wk-inst').value.trim();
       const first=buildFirstMessage(scene,char,brk,inst);
-      thread={messages:[{role:'user',content:first}]};
+      // Spread the existing record: a thread with no messages yet can already
+      // hold her pre-take card, checklist answers and draft (all saved on blur
+      // before the first breakdown) — a bare {messages} here silently wiped
+      // them on the first BREAK IT DOWN, confirmed live.
+      thread={...(thread||{}),messages:[{role:'user',content:first}]};
       document.getElementById('wk-setup').style.display='none';
       document.getElementById('wk-followup').style.display='block';
     } else {
