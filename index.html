@@ -167,6 +167,7 @@
   #work-screen select,#work-screen textarea,#am-scene{width:100%;background:var(--s2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Mono',monospace;font-size:13px;padding:10px;line-height:1.5;margin-bottom:12px;}
   #work-screen textarea{resize:vertical;}
   .wk-checklist{border-bottom:1px solid var(--border);padding-bottom:6px;margin-bottom:4px;}
+  .wk-prep{margin-top:14px;}
   .wk-prep summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:4px 0;}
   .wk-prep summary::-webkit-details-marker{display:none;}
   .wk-prep summary .wk-cl-h::before{content:'▸ ';}
@@ -377,7 +378,7 @@
   <select id="wk-char" onchange="loadThread()"></select>
   <label class="wk-l" style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400" title="Scene breakdowns on the OpenAI route only — story analysis always runs cheap">
     <input type="checkbox" id="wk-cheap" onchange="saveCheapMode()" style="width:auto">
-    💸 Cheap mode <span class="wk-opt">mini model, lower cost, less sharp</span>
+    <span style="white-space:nowrap">💸 Cheap mode</span> <span class="wk-opt">mini model, lower cost, less sharp</span>
   </label>
   <details id="wk-pretake" class="wk-prep wk-checklist" open>
     <summary><span class="wk-cl-h">Pre-take card</span><span class="wk-badge" id="wk-badge-pretake"></span></summary>
@@ -2176,6 +2177,7 @@ function openWork(){
   }
   populateWkChars(getWkScene());
   document.getElementById('wk-cheap').checked=localStorage.getItem('offbook_cheap')!=='0';
+  _wkPrepKey=''; // reopening the page re-applies the default open/closed state
   loadThread();
   show('work-screen');
   window.scrollTo(0,0);
@@ -2632,6 +2634,7 @@ function saveWkDraft(){
   thread.draft=(brk||inst)?{brk,inst}:undefined;
   setWork(scene,char,thread);
 }
+let _wkPrepKey='';
 function loadThread(){
   const scene=getWkScene();
   const thread=getWork(scene,document.getElementById('wk-char').value);
@@ -2660,8 +2663,16 @@ function loadThread(){
   renderPretake(thread);
   // Prep tucks away once the conversation has started (the badges still show
   // what's filled, and a click reopens it); the card stays open either way.
-  document.getElementById('wk-checklist').open=!has;
-  document.getElementById('wk-pretake').open=true;
+  // Only apply the open/closed defaults when the context actually changes
+  // (different scene/character, or the first breakdown just landed) — doing it
+  // on every reload slammed the checklist shut after each follow-up, even right
+  // after she'd reopened it to read her gut check.
+  const prepKey=scene+'::'+document.getElementById('wk-char').value+'::'+has;
+  if(prepKey!==_wkPrepKey){
+    _wkPrepKey=prepKey;
+    document.getElementById('wk-checklist').open=!has;
+    document.getElementById('wk-pretake').open=true;
+  }
   updatePrepBadges();
 }
 // Wrap user + script data in tags and escape any closing tags so the LLM treats scene/story content as DATA, not instructions.
@@ -2814,7 +2825,10 @@ async function generateAllScenes(){
     st.textContent=`Breaking down Scene ${i+1} of ${scenes.length}…`;
     try{
       const first=buildFirstMessage(scene,char,'','');
-      const thread={messages:[{role:'user',content:first}]};
+      // Spread what's already saved for this scene — it can hold a pre-take card/
+      // checklist typed before any breakdown (a bare {messages} wiped them; same
+      // bug sendWork() had).
+      const thread={...(existing||{}),messages:[{role:'user',content:first}]};
       const reply=await craftLLM(CRAFT_PROMPT,thread.messages,isCheapMode(),getScriptRoute(curName));
       thread.messages.push({role:'assistant',content:reply});
       setWork(scene,char,thread);
@@ -3424,14 +3438,20 @@ function stopAudio(){
 }
 
 // Voice choice: free = browser speechSynthesis ($0); HQ = OpenAI tts-1 (paid).
-function useHQVoice(){return localStorage.getItem('offbook_hq')==='1' && !!oai;}
+// Set when an OpenAI TTS request genuinely fails (out of credits, or tts-1
+// retired 2027-01-06) so every later line goes straight to the free voice
+// instead of paying a doomed request first and speaking late. Cleared by
+// tapping the voice button, which retries HQ on the next line.
+let _hqFailed=false;
+function useHQVoice(){return localStorage.getItem('offbook_hq')==='1' && !!oai && !_hqFailed;}
 function updateVoiceBtn(){
   const b=document.getElementById('voicebtn');if(!b)return;
-  const hq=localStorage.getItem('offbook_hq')==='1';
+  const hq=localStorage.getItem('offbook_hq')==='1'&&!_hqFailed;
   b.textContent=hq?'✨ HQ':'🔊 Free';
-  b.title=hq?'Scene-partner voice: OpenAI (paid, nicer)':'Scene-partner voice: browser (free)';
+  b.title=hq?'Scene-partner voice: OpenAI (paid, nicer)':(_hqFailed?'HQ voice failed — using the free voice. Tap to retry HQ.':'Scene-partner voice: browser (free)');
 }
 function toggleVoice(){
+  if(_hqFailed){_hqFailed=false;updateVoiceBtn();setSt('Retrying the HQ voice on the next line');return;}
   const wasHQ=localStorage.getItem('offbook_hq')==='1';
   localStorage.setItem('offbook_hq',wasHQ?'0':'1');
   if(!wasHQ&&!oai)setSt('HQ voice uses your OpenAI key — free voice works without one');
@@ -3484,8 +3504,9 @@ async function speakText(text){
     // OpenAI TTS can fail for reasons she can't fix mid-rehearsal (out of
     // credits, and from 2027-01-06 the retired tts-1 model) — drop to the free
     // browser voice so the scene partner never goes silent.
+    _hqFailed=true;updateVoiceBtn();
     const ok=speakBrowser(text);
-    if(ok)setSt('⚠ HQ voice failed ('+e.message+') — used the free voice instead');
+    if(ok)setSt('⚠ HQ voice failed ('+e.message+') — using the free voice. Tap the voice button to retry HQ.');
     else setSt('⚠ TTS: '+e.message);
     return ok;
   }
