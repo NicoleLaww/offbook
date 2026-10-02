@@ -375,7 +375,7 @@
     <span style="font-size:11px;color:var(--muted)">Scene work</span>
     <button class="ghost" onclick="closeWork()">← Script</button>
   </div>
-  <div class="am-sub">Three optional steps, in order — each one saved with the script. Ask the AI for help on any of them, or skip it.</div>
+  <div class="am-sub">Three optional steps, in order — each one saved with the script. Ask the AI for help on any of them, or skip it. Your Pre-take card (who am I / who are you / what do I need) lives on the Rehearse screen, right where you'll use it.</div>
   <label class="wk-l" id="wk-scene-l" style="display:none">Scene</label>
   <select id="wk-scene" onchange="onSceneChange()" style="display:none"></select>
   <label class="wk-l">I'm playing</label>
@@ -413,6 +413,7 @@
     </div>
   </div>
   <div id="wk-pane-gut" style="display:none">
+    <div id="wk-gut-busy" style="display:none;font-size:12px;color:var(--muted);margin:8px 0">⏳ A breakdown or coach request is still running — switch back to see it land.</div>
     <div id="wk-checklist" class="wk-checklist">
       <div class="am-sub" style="margin-top:6px">Optional — answer what you know, or just hit Gut check for the AI's own read on all three (it checks yours against it if you did).</div>
       <label class="wk-l">What am I literally DOING? <span class="wk-opt">the verb, not the feeling</span></label>
@@ -2630,6 +2631,26 @@ function wkScrollToLatest(){
 // the existing breakdown record and saved-data format are untouched).
 let _wkTab='breakdown';
 function setWkTab(t){_wkTab=t;loadThread();}
+// Pure: every show/hide decision loadThread() makes, as data — which pane and
+// buttons are visible for a given scene / tab / has-a-conversation. Split out
+// because this branching is the easiest part of the page to break (e.g. a
+// Phase 2 button leaking into the coach chat, or a coach tab on a whole-script
+// run) and was only ever checked by hand (see test-scenes.mjs).
+function wkViewState(scene,tab,has,totalScenes){
+  const t=scene==='all'?'breakdown':tab; // coach questions + gut check are per-scene
+  const coach=t==='coach',gut=t==='gut';
+  return {
+    tab:t,
+    tabsVisible:scene!=='all',
+    chatPane:!gut,gutPane:gut,dock:!gut,
+    coachIntro:coach&&!has,
+    setup:!has&&!coach,
+    followup:has,secondary:has,
+    phase2:!coach,redo:!coach,stumped:coach,
+    goLabel:has?'SEND →':(coach?'ASK ME THE QUESTIONS':'BREAK IT DOWN'),
+    genAll:scene==='all'&&has&&totalScenes>1,
+  };
+}
 function wkChat(scene,char){
   const t=getWork(scene,char);
   return (_wkTab==='coach'&&scene!=='all')?((t&&t.coach)||null):t;
@@ -2681,38 +2702,34 @@ function saveWkDraft(){
 }
 function loadThread(){
   const scene=getWkScene(),char=document.getElementById('wk-char').value;
-  // Coach's questions and Gut check are per-scene — a whole multi-scene packet
-  // has no single verb/position/beat to ask about — so whole-script is
-  // breakdown-only (the story analysis).
-  if(scene==='all')_wkTab='breakdown';
-  const coach=_wkTab==='coach',gut=_wkTab==='gut';
   const base=getWork(scene,char);
-  const chat=coach?(base&&base.coach):base;
+  const totalScenes=new Set(SL.map(l=>l.scene)).size;
+  // Resolve the tab first (whole-script is breakdown-only), then read the chat
+  // that tab shows to know whether a conversation exists yet.
+  const coachTab=scene!=='all'&&_wkTab==='coach';
+  const chat=coachTab?(base&&base.coach):base;
   const has=!!(chat&&chat.messages&&chat.messages.length);
+  const v=wkViewState(scene,_wkTab,has,totalScenes);
+  _wkTab=v.tab;
+  const show=(id,on,disp)=>{const el=document.getElementById(id);if(el)el.style.display=on?(disp||'block'):'none';};
   const draft=(base&&base.draft)||{};
   document.getElementById('wk-brk').value=draft.brk||'';
   document.getElementById('wk-inst').value=draft.inst||'';
-  const tabs=document.getElementById('wk-tabs');
-  tabs.style.display=scene==='all'?'none':'flex';
-  tabs.querySelectorAll('.scene-tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===_wkTab));
-  document.getElementById('wk-pane-chat').style.display=gut?'none':'block';
-  document.getElementById('wk-pane-gut').style.display=gut?'block':'none';
-  document.getElementById('wk-dock').style.display=gut?'none':'block';
-  document.getElementById('wk-coach-intro').style.display=(coach&&!has)?'block':'none';
-  document.getElementById('wk-setup').style.display=(has||coach)?'none':'block';
-  document.getElementById('wk-followup').style.display=has?'block':'none';
-  document.querySelector('#wk-followup .wk-p2').style.display=coach?'none':'';
-  document.getElementById('wk-msg').placeholder=coach?'Answer one or all — or say you\'re stumped…':'Ask a follow-up — e.g. take me through beat 3, or start Phase 2…';
-  const sec=document.getElementById('wk-secondary');if(sec)sec.style.display=has?'flex':'none';
-  document.getElementById('wk-redo').style.display=coach?'none':'';
-  document.getElementById('wk-stumped').style.display=coach?'':'none';
-  document.getElementById('wk-go').textContent=has?'SEND →':(coach?'ASK ME THE QUESTIONS':'BREAK IT DOWN');
+  show('wk-tabs',v.tabsVisible,'flex');
+  document.querySelectorAll('#wk-tabs .scene-tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===v.tab));
+  show('wk-pane-chat',v.chatPane);show('wk-pane-gut',v.gutPane);show('wk-dock',v.dock);
+  show('wk-coach-intro',v.coachIntro);show('wk-setup',v.setup);
+  show('wk-followup',v.followup);
+  document.querySelector('#wk-followup .wk-p2').style.display=v.phase2?'':'none';
+  document.getElementById('wk-msg').placeholder=v.tab==='coach'?'Answer one or all — or say you\'re stumped…':'Ask a follow-up — e.g. take me through beat 3, or start Phase 2…';
+  show('wk-secondary',v.secondary,'flex');
+  document.getElementById('wk-redo').style.display=v.redo?'':'none';
+  document.getElementById('wk-stumped').style.display=v.stumped?'':'none';
+  document.getElementById('wk-go').textContent=v.goLabel;
   document.getElementById('wk-status').textContent='';
   const revBanner=document.getElementById('wk-revised-banner');
   if(revBanner)revBanner.style.display=(scene==='all'&&base&&base._revised)?'block':'none';
-  const totalScenes=new Set(SL.map(l=>l.scene)).size;
-  const genWrap=document.getElementById('wk-genall-wrap');
-  if(genWrap)genWrap.style.display=(scene==='all'&&has&&totalScenes>1)?'block':'none';
+  show('wk-genall-wrap',v.genAll);
   _editingIdx=-1;
   renderThread(chat);
   renderChecklist(base);
@@ -2749,6 +2766,7 @@ function buildFirstMessage(scene,char,brk,inst){
 // exists for — confirmed live (batch mid-flight, flag already false).
 let _wkJobRunning=0;
 function setWkButtonsBusy(busy){
+  const gb=document.getElementById('wk-gut-busy');if(gb)gb.style.display=busy?'block':'none'; // the bottom bar (and its status line) is hidden on the Gut check tab
   document.getElementById('wk-go').disabled=busy;
   document.querySelectorAll('#wk-secondary button').forEach(b=>b.disabled=busy);
 }

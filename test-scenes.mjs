@@ -58,6 +58,21 @@ function extractConst(name) {
   return src.slice(start, end);
 }
 
+// Same idea as extractConst, for a multi-line `...` template-literal prompt.
+// Asserts it has no ${...} interpolation so the raw text IS the final prompt.
+function extractPrompt(name) {
+  const marker = `const ${name}=\``;
+  const start = src.indexOf(marker);
+  if (start === -1) throw new Error(`Could not find prompt ${name} in index.html — renamed or moved?`);
+  const bodyStart = start + marker.length;
+  const end = src.indexOf('`;', bodyStart);
+  const body = src.slice(bodyStart, end);
+  if (body.includes('${')) throw new Error(`${name} has template interpolation — test would not see the real prompt`);
+  return body;
+}
+const COACH_PROMPT = extractPrompt('COACH_PROMPT');
+const PRETAKE_PROMPT = extractPrompt('PRETAKE_PROMPT');
+
 const scope = new Function(`
   ${extractFn('norm')}
   ${extractFn('cleanChar')}
@@ -87,6 +102,7 @@ const scope = new Function(`
   ${extractFn('cleanGemErr')}
   ${extractFn('parsePretakeReply')}
   ${extractFn('threadAfterBreakdownReset')}
+  ${extractFn('wkViewState')}
   ${extractFn('getScriptRoute')}
   let curName='';
   let _sessionWork={};
@@ -97,9 +113,14 @@ const scope = new Function(`
   ${extractFn('sceneText')}
   let _logView='date';
   ${extractFn('logGroupKey')}
-  return { norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, recomputeScenes, setSL: v => SL = v, getSL: () => SL, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache: v => _scriptsCache = v, setCurName: v => curName = v, setSessionWork: v => _sessionWork = v, setSceneFilter: v => _sceneFilter = v, setLogView: v => _logView = v };
+  let _wkTab='breakdown';
+  function writeSaved(arr){_scriptsCache=arr;} // storage stub — the real one persists to IndexedDB; the logic under test is setWork/wkChat/saveChat
+  ${extractFn('setWork')}
+  ${extractFn('wkChat')}
+  ${extractFn('saveChat')}
+  return { norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, recomputeScenes, setSL: v => SL = v, getSL: () => SL, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache: v => _scriptsCache = v, setCurName: v => curName = v, setWkTab: v => _wkTab = v, getScriptsCache: () => _scriptsCache, setSessionWork: v => _sessionWork = v, setSceneFilter: v => _sceneFilter = v, setLogView: v => _logView = v };
 `)();
-const { cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, setSL, getSL, recomputeScenes, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache, setCurName, setSessionWork, setSceneFilter, setLogView } = scope;
+const { cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, setSL, getSL, recomputeScenes, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache, setCurName, setWkTab, getScriptsCache, setSessionWork, setSceneFilter, setLogView } = scope;
 
 let pass = 0, fail = 0;
 function t(desc, actual, expected) {
@@ -560,6 +581,73 @@ t('threadAfterBreakdownReset: only keeps the fields that exist',
 t('threadAfterBreakdownReset: nothing worth keeping returns null, so the record is removed outright',
   threadAfterBreakdownReset({ messages: [{ role: 'user', content: 'x' }], draft: { brk: 'a' } }), null);
 t('threadAfterBreakdownReset: a missing thread is null, not a crash', threadAfterBreakdownReset(null), null);
+
+// --- wkViewState(): every show/hide decision on the Scene Work page, as data.
+// This branching is the easiest thing on the page to break (a Phase 2 button
+// leaking into the coach chat, a coach tab on a whole-script run) and was only
+// ever checked by hand. ---
+t('wkViewState: whole-script run is breakdown-only, whatever tab was last open, and hides the tab bar',
+  (({ tab, tabsVisible, chatPane, gutPane }) => ({ tab, tabsVisible, chatPane, gutPane }))(wkViewState('all', 'coach', false, 3)),
+  { tab: 'breakdown', tabsVisible: false, chatPane: true, gutPane: false });
+t('wkViewState: a fresh breakdown shows the casting/instinct setup, BREAK IT DOWN, and no follow-up box',
+  (({ setup, followup, secondary, goLabel, phase2, redo, stumped }) => ({ setup, followup, secondary, goLabel, phase2, redo, stumped }))(wkViewState(1, 'breakdown', false, 3)),
+  { setup: true, followup: false, secondary: false, goLabel: 'BREAK IT DOWN', phase2: true, redo: true, stumped: false });
+t('wkViewState: once a breakdown exists the setup tucks away and the follow-up + action row appear',
+  (({ setup, followup, secondary, goLabel }) => ({ setup, followup, secondary, goLabel }))(wkViewState(1, 'breakdown', true, 3)),
+  { setup: false, followup: true, secondary: true, goLabel: 'SEND →' });
+t('wkViewState: a fresh coach chat shows the intro and ASK ME THE QUESTIONS, never the casting setup',
+  (({ coachIntro, setup, goLabel, followup }) => ({ coachIntro, setup, goLabel, followup }))(wkViewState(2, 'coach', false, 3)),
+  { coachIntro: true, setup: false, goLabel: 'ASK ME THE QUESTIONS', followup: false });
+t('wkViewState: the coach chat has no Phase 2 or Redo, but does have the "I\'m stumped" button',
+  (({ phase2, redo, stumped }) => ({ phase2, redo, stumped }))(wkViewState(2, 'coach', true, 3)),
+  { phase2: false, redo: false, stumped: true });
+t('wkViewState: a coach chat that already started drops the intro',
+  wkViewState(2, 'coach', true, 3).coachIntro, false);
+t('wkViewState: the Gut check tab hides the chat pane and the bottom bar, shows its own pane',
+  (({ chatPane, gutPane, dock }) => ({ chatPane, gutPane, dock }))(wkViewState(1, 'gut', false, 3)),
+  { chatPane: false, gutPane: true, dock: false });
+t('wkViewState: "Generate all scenes" is offered only on a whole-script run that has an analysis AND more than one scene',
+  [wkViewState('all', 'breakdown', true, 3).genAll, wkViewState('all', 'breakdown', false, 3).genAll, wkViewState('all', 'breakdown', true, 1).genAll, wkViewState(1, 'breakdown', true, 3).genAll],
+  [true, false, false, false]);
+
+// --- wkChat()/saveChat(): the coach chat is stored BESIDE the breakdown
+// (thread.coach), so reading and writing it must never disturb the breakdown
+// thread or the rest of the record (checklist, pre-take card, draft). ---
+setScriptsCache([{ name: 'S.pdf', work: { '1::PEG': { messages: [{ role: 'user', content: 'b' }], checklist: { verb: 'v' }, coach: { messages: [{ role: 'user', content: 'c' }] } } } }]);
+setCurName('S.pdf');
+setWkTab('breakdown');
+t('wkChat: on the breakdown tab returns the main thread', wkChat(1, 'PEG').messages[0].content, 'b');
+setWkTab('coach');
+t('wkChat: on the coach tab returns the coach chat, not the breakdown', wkChat(1, 'PEG').messages[0].content, 'c');
+t('wkChat: a coach chat that hasn\'t started yet is null', wkChat(1, 'LIAM'), null);
+t('wkChat: whole-script mode ignores a stale coach tab and returns the main thread',
+  (setScriptsCache([{ name: 'S.pdf', work: { 'all::PEG': { messages: [{ role: 'user', content: 'story' }] } } }]), wkChat('all', 'PEG').messages[0].content), 'story');
+
+setScriptsCache([{ name: 'S.pdf', work: { '1::PEG': { messages: [{ role: 'user', content: 'b' }], checklist: { verb: 'v' }, pretake: { who: 'w' } } } }]);
+saveChat(1, 'PEG', true, { messages: [{ role: 'user', content: 'new coach' }] });
+{
+  const w = getScriptsCache()[0].work['1::PEG'];
+  t('saveChat (coach): stores the chat beside the breakdown without touching it, the checklist, or the pre-take card',
+    { coach: w.coach.messages[0].content, breakdown: w.messages[0].content, verb: w.checklist.verb, who: w.pretake.who },
+    { coach: 'new coach', breakdown: 'b', verb: 'v', who: 'w' });
+}
+saveChat(1, 'PEG', false, { messages: [{ role: 'user', content: 'replaced' }], coach: { messages: [] } });
+t('saveChat (breakdown): writes the thread it was given under the scene key',
+  getScriptsCache()[0].work['1::PEG'].messages[0].content, 'replaced');
+
+// --- COACH_PROMPT / PRETAKE_PROMPT: prompts are code — an accidental edit
+// that revives a dropped question or lets the coach start answering for her
+// changes behavior with no error. Pin the decisions we made. ---
+t('COACH_PROMPT: states the core rule — ask, don\'t answer', COACH_PROMPT.includes('YOUR JOB IS TO ASK, NOT TO ANSWER'), true);
+t('COACH_PROMPT: only answers when she explicitly says she\'s stumped', /UNLESS she explicitly asks/.test(COACH_PROMPT), true);
+t('COACH_PROMPT: questions 1-9 are all present', [1, 2, 3, 4, 5, 6, 7, 8, 9].every(n => new RegExp(`^${n}\\. [A-Z]`, 'm').test(COACH_PROMPT)), true);
+t('COACH_PROMPT: question 10 (takes) stays dropped', /^10\./m.test(COACH_PROMPT) || /TAKES/.test(COACH_PROMPT), false);
+t('COACH_PROMPT: bait-and-switch is conditional — only asked when the scene has a flip',
+  /BAIT-AND-SWITCH — ONLY if the scene actually has a flip/.test(COACH_PROMPT), true);
+t('COACH_PROMPT: questions must be grounded in actual lines, not generic', /point at actual lines/.test(COACH_PROMPT), true);
+t('PRETAKE_PROMPT: asks for the who/you/need JSON shape parsePretakeReply expects',
+  PRETAKE_PROMPT.includes('{"who":"...","you":"...","need":"..."}'), true);
+t('PRETAKE_PROMPT: keeps lines she already wrote (collaborate, don\'t overwrite)', /return it unchanged unless her note says to change it/.test(PRETAKE_PROMPT), true);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
