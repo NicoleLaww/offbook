@@ -390,6 +390,11 @@
     <button class="scene-tab" data-tab="gut" onclick="setWkTab('gut')">3 · Gut check</button>
   </div>
   <div id="wk-pane-chat">
+    <div id="wk-split-hint" style="display:none;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;background:rgba(251,191,36,.08);border:1px solid var(--amber);border-radius:8px;padding:10px 12px;font-size:12px;color:var(--amber);margin:14px 0">
+      <span>Only one scene was detected in this script. If your sides have more than one, the AI will blend them — go back and tap “+ new scene” on the first line of each new scene.</span>
+      <button class="ghost" onclick="closeWork()">← Back to split</button>
+    </div>
+    <div id="wk-byscene" style="display:none;margin-top:14px"></div>
     <div id="wk-coach-intro" class="am-sub" style="display:none">Your coach's questions, asked about your actual lines. It asks — you answer. Stumped? Say so and it'll take a swing for you to correct.</div>
     <div id="wk-setup">
       <label class="wk-l">Casting / character breakdown <span class="wk-opt">optional</span></label>
@@ -2068,6 +2073,8 @@ THEN NAME THE UNSPOKEN OFFER. Second line, before the section headers. Every ali
 
 Everything downstream — the spine, the verbs, the beats — inherits from those two readings. If a section drifts off-compass, the compass wins and the section gets rewritten.
 
+ONE SCENE PER BREAKDOWN. The sides you're handed are supposed to be ONE scene. If they plainly contain more than one (a jump in location, time, or who's in the room, with no transition), do NOT blend them into one read — a compass from one scene stapled to an offer from another is worse than useless. Say so in your first line, name exactly where the break falls, and tell her to split it in the script view so each scene gets its own breakdown. Then give a COMPASS and an UNSPOKEN OFFER for EACH scene separately, and build the rest of the structure for the FIRST scene only.
+
 SCOPE OF THIS STRUCTURE — the compass/offer opener and the seven numbered sections below are the format for DELIVERING OR RE-DELIVERING A BREAKDOWN ONLY: the very first message in a thread, and any later message where the actor is explicitly asking for a fresh or updated breakdown (e.g. "redo this with X changed," "give me the beats for scene 2"). Once a breakdown has been delivered, ordinary follow-ups — a question, a request to go deeper on one beat, a tangent, small talk — get a normal conversational reply in plain prose: answer exactly what was asked, no forced COMPASS/UNSPOKEN OFFER opener, no restating headers, no reprinting sections that weren't asked about. Only reach for the full structure again when the actor is actually asking to (re)build the breakdown.
 
 OUTPUT (conversational prose; bullets only for real lists; bold the verbs with **double asterisks**; use ## headers for the seven sections after the two-line opener — see SCOPE above for when this applies):
@@ -2651,6 +2658,27 @@ function wkViewState(scene,tab,has,totalScenes){
     genAll:scene==='all'&&has&&totalScenes>1,
   };
 }
+// Pure: does this script look like several scenes that never got split? Exactly
+// one scene across a good number of live lines is the signature — the parser
+// found no scene breaks, so Scene Work would send everything as "Scene 1" and
+// the AI would blend them (a compass from one scene, an offer from another).
+// 12 is a guess at "too long to be a single short scene"; a genuinely long
+// single scene sees a harmless banner, never a block.
+function looksLikeUnsplitScenes(lines){
+  const live=(lines||[]).filter(l=>!l.cut);
+  if(live.length<12)return false;
+  return new Set(live.map(l=>l.scene)).size===1;
+}
+// Pure: pulls the two-line north star (COMPASS / UNSPOKEN OFFER) out of a saved
+// breakdown reply, tolerating **bold** markers and list/quote prefixes. Either
+// is null when the reply doesn't have it, so the By-scene summary can say so.
+function extractCompassOffer(reply){
+  const grab=label=>{
+    const m=new RegExp('^[\\s>*_#-]*'+label+'[\\s*_]*:[\\s*_]*(.+)$','im').exec(reply||'');
+    return m?m[1].replace(/[*_\s]+$/,'').trim()||null:null;
+  };
+  return {compass:grab('COMPASS'),offer:grab('UNSPOKEN OFFER')};
+}
 function wkChat(scene,char){
   const t=getWork(scene,char);
   return (_wkTab==='coach'&&scene!=='all')?((t&&t.coach)||null):t;
@@ -2730,9 +2758,42 @@ function loadThread(){
   const revBanner=document.getElementById('wk-revised-banner');
   if(revBanner)revBanner.style.display=(scene==='all'&&base&&base._revised)?'block':'none';
   show('wk-genall-wrap',v.genAll);
+  show('wk-split-hint',v.chatPane&&looksLikeUnsplitScenes(SL),'flex');
+  renderByScene(scene,char,totalScenes);
   _editingIdx=-1;
   renderThread(chat);
   renderChecklist(base);
+}
+// Whole-script view: each scene's own COMPASS + UNSPOKEN OFFER side by side, read
+// from the breakdowns already saved (no AI call). A scene with no breakdown yet
+// says so and links to it. Hidden until at least one scene has a breakdown.
+function renderByScene(scene,char,totalScenes){
+  const box=document.getElementById('wk-byscene');if(!box)return;
+  const scenes=[...new Set(SL.map(l=>l.scene))];
+  const rows=scenes.map(n=>{
+    const reply=latestAssistantReply(getWork(n,char));
+    return {n,reply,co:reply?extractCompassOffer(reply):null};
+  });
+  if(scene!=='all'||totalScenes<2||!rows.some(r=>r.reply)){box.style.display='none';box.innerHTML='';return;}
+  box.style.display='block';box.innerHTML='';
+  const h=document.createElement('div');h.className='wk-cl-h';h.textContent='Compass & unspoken offer, by scene';box.appendChild(h);
+  rows.forEach(({n,reply,co})=>{
+    const card=document.createElement('div');card.className='saved-item';card.style.cssText='flex-direction:column;align-items:stretch;gap:4px;margin-top:8px';
+    const title=document.createElement('div');title.style.cssText='font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)';
+    title.textContent='Scene '+n+(sceneNameFor(n)?' — '+sceneNameFor(n):'');
+    card.appendChild(title);
+    const line=(label,val)=>{const d=document.createElement('div');d.style.cssText='font-size:13px;line-height:1.5';const b=document.createElement('b');b.style.color='var(--muted)';b.textContent=label+' ';d.appendChild(b);d.appendChild(document.createTextNode(val||'—'));return d;};
+    if(!reply){
+      const d=document.createElement('div');d.style.cssText='font-size:12px;color:var(--muted)';d.textContent='Not broken down yet. ';
+      const go=document.createElement('button');go.className='ghost';go.style.cssText='margin-left:6px;padding:3px 10px;font-size:11px';go.textContent='Open Scene '+n+' →';
+      go.onclick=()=>{const sel=document.getElementById('wk-scene');sel.value=String(n);onSceneChange();window.scrollTo(0,0);};
+      d.appendChild(go);card.appendChild(d);
+    } else {
+      card.appendChild(line('Compass',co.compass));
+      card.appendChild(line('Unspoken offer',co.offer));
+    }
+    box.appendChild(card);
+  });
 }
 // Wrap user + script data in tags and escape any closing tags so the LLM treats scene/story content as DATA, not instructions.
 function _escTags(t){return (t||'').replace(/<\/?(scene|breakdown|instinct|story)>/gi,'[tag]');}
@@ -2781,7 +2842,7 @@ RULES:
 - Make every question specific to THIS scene: point at actual lines (quote a few words) so she can find them. A generic question she could answer without the sides is a failure.
 - Same direct voice as the rest of her tool — no hedging. Banned: "perhaps," "one could argue," "you might consider." Terse.
 
-YOUR FIRST REPLY: open with one short line orienting her (character, scene), then ask these all at once, numbered, each under its short name, one to three sentences each. Pointing at lines is expected — that is not answering:
+YOUR FIRST REPLY: open with one short line orienting her (character, scene) — and if the sides plainly contain MORE than one scene (a jump in location, time, or who's in the room), say so in that line, name where the break falls, ask your questions about the FIRST scene only, and tell her to split the scenes so each gets its own questions. Then ask these all at once, numbered, each under its short name, one to three sentences each. Pointing at lines is expected — that is not answering:
 1. GENRE / TONE — What show or comparable is this? Where are the ceiling and floor of its performance style? Ask her to name one or two comparables she'd watch.
 2. AUDIENCE RESPONSE — In one sentence, what should the audience feel about this character by the end of the scene (hate, suspect, root for, laugh at the bit)?
 3. THE SCENE'S JOB — Why does this scene exist in the story? What does production need this role to deliver (plot info, a joke, a setup for the leads)?

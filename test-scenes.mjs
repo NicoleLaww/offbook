@@ -72,6 +72,7 @@ function extractPrompt(name) {
 }
 const COACH_PROMPT = extractPrompt('COACH_PROMPT');
 const PRETAKE_PROMPT = extractPrompt('PRETAKE_PROMPT');
+const CRAFT_PROMPT = extractPrompt('CRAFT_PROMPT');
 
 const scope = new Function(`
   ${extractFn('norm')}
@@ -103,6 +104,8 @@ const scope = new Function(`
   ${extractFn('parsePretakeReply')}
   ${extractFn('threadAfterBreakdownReset')}
   ${extractFn('wkViewState')}
+  ${extractFn('looksLikeUnsplitScenes')}
+  ${extractFn('extractCompassOffer')}
   ${extractFn('getScriptRoute')}
   let curName='';
   let _sessionWork={};
@@ -118,9 +121,9 @@ const scope = new Function(`
   ${extractFn('setWork')}
   ${extractFn('wkChat')}
   ${extractFn('saveChat')}
-  return { norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, recomputeScenes, setSL: v => SL = v, getSL: () => SL, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache: v => _scriptsCache = v, setCurName: v => curName = v, setWkTab: v => _wkTab = v, getScriptsCache: () => _scriptsCache, setSessionWork: v => _sessionWork = v, setSceneFilter: v => _sceneFilter = v, setLogView: v => _logView = v };
+  return { norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, recomputeScenes, setSL: v => SL = v, getSL: () => SL, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, looksLikeUnsplitScenes, extractCompassOffer, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache: v => _scriptsCache = v, setCurName: v => curName = v, setWkTab: v => _wkTab = v, getScriptsCache: () => _scriptsCache, setSessionWork: v => _sessionWork = v, setSceneFilter: v => _sceneFilter = v, setLogView: v => _logView = v };
 `)();
-const { cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, setSL, getSL, recomputeScenes, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache, setCurName, setWkTab, getScriptsCache, setSessionWork, setSceneFilter, setLogView } = scope;
+const { cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, setSL, getSL, recomputeScenes, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, looksLikeUnsplitScenes, extractCompassOffer, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache, setCurName, setWkTab, getScriptsCache, setSessionWork, setSceneFilter, setLogView } = scope;
 
 let pass = 0, fail = 0;
 function t(desc, actual, expected) {
@@ -648,6 +651,42 @@ t('COACH_PROMPT: questions must be grounded in actual lines, not generic', /poin
 t('PRETAKE_PROMPT: asks for the who/you/need JSON shape parsePretakeReply expects',
   PRETAKE_PROMPT.includes('{"who":"...","you":"...","need":"..."}'), true);
 t('PRETAKE_PROMPT: keeps lines she already wrote (collaborate, don\'t overwrite)', /return it unchanged unless her note says to change it/.test(PRETAKE_PROMPT), true);
+
+// --- looksLikeUnsplitScenes(): the parser found no scene breaks in a script
+// that's too long to be one short scene — Scene Work would send it all as
+// "Scene 1" and the AI would blend them (a compass from one scene, an unspoken
+// offer from another). ---
+const mk = (n, scene, cut) => Array.from({ length: n }, () => ({ scene, cut: !!cut }));
+t('looksLikeUnsplitScenes: 14 lines, all one scene — flagged', looksLikeUnsplitScenes(mk(14, 1)), true);
+t('looksLikeUnsplitScenes: exactly 12 live lines (the threshold) — flagged', looksLikeUnsplitScenes(mk(12, 1)), true);
+t('looksLikeUnsplitScenes: 11 lines — too short to worry about', looksLikeUnsplitScenes(mk(11, 1)), false);
+t('looksLikeUnsplitScenes: a script that already has 2+ scenes is never flagged', looksLikeUnsplitScenes([...mk(10, 1), ...mk(10, 2)]), false);
+t('looksLikeUnsplitScenes: cut lines don\'t count toward the length', looksLikeUnsplitScenes([...mk(8, 1), ...mk(10, 1, true)]), false);
+t('looksLikeUnsplitScenes: missing/empty input is false, not a crash', [looksLikeUnsplitScenes(undefined), looksLikeUnsplitScenes([])], [false, false]);
+
+// --- extractCompassOffer(): reads each scene's COMPASS / UNSPOKEN OFFER out of
+// its saved breakdown for the "by scene" summary (no AI call). ---
+t('extractCompassOffer: reads both lines from the standard opener',
+  extractCompassOffer('COMPASS: FIGHT — to shock everyone into submission.\nUNSPOKEN OFFER: I will burn my life down for us.\n\n## 1. THE PERSON'),
+  { compass: 'FIGHT — to shock everyone into submission.', offer: 'I will burn my life down for us.' });
+t('extractCompassOffer: tolerates **bold** markers around the label and the text',
+  extractCompassOffer('**COMPASS:** FIGHT-leaning — to hook her.\n**UNSPOKEN OFFER:** *stay with me.*'),
+  { compass: 'FIGHT-leaning — to hook her.', offer: 'stay with me.' });
+t('extractCompassOffer: finds them below an intro line, case-insensitively',
+  extractCompassOffer('Here is the read.\n\ncompass: FUCK dressed as FIGHT — x\nUnspoken Offer: y'),
+  { compass: 'FUCK dressed as FIGHT — x', offer: 'y' });
+t('extractCompassOffer: one missing line is null, the other still comes through',
+  extractCompassOffer('COMPASS: FIGHT — x\n\n## THE PERSON'), { compass: 'FIGHT — x', offer: null });
+t('extractCompassOffer: a reply with neither (a follow-up, or a story analysis) is both null',
+  extractCompassOffer('Sure — take me through beat 3.'), { compass: null, offer: null });
+t('extractCompassOffer: missing/undefined reply is both null, not a crash', extractCompassOffer(undefined), { compass: null, offer: null });
+t('extractCompassOffer: a label mentioned mid-sentence is not mistaken for the opener',
+  extractCompassOffer('The compass: is hard to name here.'), { compass: null, offer: null });
+
+// --- the "don't blend scenes" rule in the prompts ---
+t('CRAFT_PROMPT: tells the model not to blend multiple scenes and to give each its own compass + offer',
+  /ONE SCENE PER BREAKDOWN/.test(CRAFT_PROMPT) && /COMPASS and an UNSPOKEN OFFER for EACH scene/.test(CRAFT_PROMPT), true);
+t('COACH_PROMPT: flags multi-scene sides and asks about the first scene only', /MORE than one scene/.test(COACH_PROMPT) && /FIRST scene only/.test(COACH_PROMPT), true);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
