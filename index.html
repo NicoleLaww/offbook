@@ -159,20 +159,25 @@
   #done-screen h2{font-family:'Syne',sans-serif;font-weight:800;font-size:48px;margin-bottom:12px;color:var(--green);}
   #done-screen p{color:var(--muted);margin-bottom:32px;}
   .score{font-family:'Syne',sans-serif;font-size:20px;margin-bottom:40px;}
-  #audio-modal,#work-modal{position:fixed;inset:0;z-index:400;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;padding:20px;}
-  #audio-modal.show,#work-modal.show{display:flex;}
-  #work-modal{padding:12px;}
-  #work-modal .am-card{max-width:1100px;width:100%;height:calc(100vh - 24px);max-height:none;padding:22px 28px;border-radius:12px;}
-  @media (max-width:720px){#work-modal{padding:0;} #work-modal .am-card{height:100vh;border-radius:0;padding:16px 14px;}}
+  #audio-modal{position:fixed;inset:0;z-index:400;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;padding:20px;}
+  #audio-modal.show{display:flex;}
+  #work-screen{display:none;width:100%;max-width:820px;}
   .wk-l{display:block;font-size:12px;color:var(--text);margin:14px 0 6px;}
   .wk-opt{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.05em;margin-left:4px;}
-  #work-modal select,#work-modal textarea,#am-scene{width:100%;background:var(--s2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Mono',monospace;font-size:13px;padding:10px;line-height:1.5;margin-bottom:12px;}
-  #work-modal textarea{resize:vertical;}
+  #work-screen select,#work-screen textarea,#am-scene{width:100%;background:var(--s2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Mono',monospace;font-size:13px;padding:10px;line-height:1.5;margin-bottom:12px;}
+  #work-screen textarea{resize:vertical;}
   .wk-checklist{border-bottom:1px solid var(--border);padding-bottom:6px;margin-bottom:4px;}
+  .wk-prep summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:4px 0;}
+  .wk-prep summary::-webkit-details-marker{display:none;}
+  .wk-prep summary .wk-cl-h::before{content:'▸ ';}
+  .wk-prep[open] summary .wk-cl-h::before{content:'▾ ';}
+  .wk-badge{font-size:10px;color:var(--muted);border:1px solid var(--border);border-radius:10px;padding:1px 8px;white-space:nowrap;}
+  .wk-badge.done{color:var(--green);border-color:var(--green);}
+  .wk-dock{position:sticky;bottom:0;z-index:50;background:rgba(10,10,10,.97);backdrop-filter:blur(12px);border-top:1px solid var(--border);margin-top:16px;padding:12px 0 calc(12px + env(safe-area-inset-bottom));}
   .wk-cl-h{font-family:'Syne',sans-serif;font-weight:800;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-top:2px;}
   .wk-cl-result{margin-top:2px;margin-bottom:12px;color:var(--text);font-size:13px;line-height:1.6;}
   .wk-cl-result:empty{display:none;}
-  .wk-out{margin-top:14px;color:var(--text);overflow-y:auto;flex:1;min-height:0;padding-right:6px;}
+  .wk-out{margin-top:14px;color:var(--text);}
   .wk-out:empty{display:none;}
   .wk-out h4{font-family:'Syne',sans-serif;font-weight:800;font-size:16px;letter-spacing:.04em;text-transform:uppercase;color:var(--accent);margin:28px 0 10px;border-bottom:1px solid var(--border);padding-bottom:6px;}
   .wk-out h4:first-child{margin-top:0;}
@@ -189,7 +194,7 @@
   .wk-edit-actions{display:flex;gap:6px;margin-bottom:14px;}
   .wk-edit-actions button{font-family:'DM Mono',monospace;font-size:11px;padding:6px 12px;background:var(--s2);border:1px solid var(--border);color:var(--text);border-radius:6px;cursor:pointer;}
   .wk-edit-actions .wk-edit-save{border-color:var(--accent);color:var(--accent);}
-  #work-modal #wk-msg{width:100%;background:var(--s2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Mono',monospace;font-size:13px;padding:10px;line-height:1.5;resize:vertical;}
+  #work-screen #wk-msg{width:100%;background:var(--s2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Mono',monospace;font-size:13px;padding:10px;line-height:1.5;resize:vertical;}
   .wk-actions{display:flex;gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap;}
   .wk-actions-secondary{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;}
   .wk-actions-secondary button{font-size:11px;padding:6px 10px;}
@@ -357,74 +362,78 @@
   </div>
 </div>
 
-<!-- SCENE WORK -->
-<div id="work-modal">
-  <div class="am-card" style="display:flex;flex-direction:column">
-    <button class="cmp-x" onclick="closeWork()" aria-label="Close">✕</button>
-    <h3 class="am-h">Scene work</h3>
-    <div class="am-sub">A breakdown you can step into — then keep working it in conversation. Saved with the script.</div>
-    <label class="wk-l" id="wk-scene-l" style="display:none">Scene</label>
-    <select id="wk-scene" onchange="onSceneChange()" style="display:none"></select>
-    <label class="wk-l">I'm playing</label>
-    <select id="wk-char" onchange="loadThread()"></select>
-    <label class="wk-l" style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400">
-      <input type="checkbox" id="wk-cheap" onchange="saveCheapMode()" style="width:auto">
-      💸 Cheap mode — mini model, lower cost, less sharp <span class="wk-opt">(scene breakdowns, OpenAI route only — story analysis always runs cheap)</span>
-    </label>
-    <div id="wk-pretake" class="wk-checklist">
-      <div class="wk-cl-h">Pre-take card</div>
-      <div style="font-size:10px;color:var(--muted);margin-top:2px">Three lines to glance at right before you record</div>
-      <label class="wk-l">Who am I?</label>
-      <textarea id="wk-pt-who" rows="1" placeholder="e.g. a nurse covering a double shift who just lost a patient" onblur="savePretakeFields()"></textarea>
-      <label class="wk-l">Who are you? <span class="wk-opt">my scene partner</span></label>
-      <textarea id="wk-pt-you" rows="1" placeholder="e.g. the doctor who signed off on the chart" onblur="savePretakeFields()"></textarea>
-      <label class="wk-l">What do I need? <span class="wk-opt">from them, right now</span></label>
-      <textarea id="wk-pt-need" rows="1" placeholder="e.g. for her to admit it was her call" onblur="savePretakeFields()"></textarea>
-      <div class="wk-actions-secondary" style="margin-top:10px">
-        <button class="ghost" id="wk-pt-draftbtn" onclick="draftPretake()">✨ Draft for me</button>
-        <span style="font-size:10px;color:var(--muted);align-self:center">Proposes answers from the scene — nothing is saved until you accept</span>
-      </div>
-      <div id="wk-pt-draft" class="wk-cl-result"></div>
+<!-- SCENE WORK — its own scrolling page (not a modal): prep on top, chat below,
+     composer pinned to the bottom. Scroll back up any time to change answers. -->
+<div id="work-screen">
+  <div class="sh">
+    <div class="logo">OFF<span>BOOK</span></div>
+    <span style="font-size:11px;color:var(--muted)">Scene work</span>
+    <button class="ghost" onclick="closeWork()">← Script</button>
+  </div>
+  <div class="am-sub">A breakdown you can step into — then keep working it in conversation. Saved with the script.</div>
+  <label class="wk-l" id="wk-scene-l" style="display:none">Scene</label>
+  <select id="wk-scene" onchange="onSceneChange()" style="display:none"></select>
+  <label class="wk-l">I'm playing</label>
+  <select id="wk-char" onchange="loadThread()"></select>
+  <label class="wk-l" style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:400" title="Scene breakdowns on the OpenAI route only — story analysis always runs cheap">
+    <input type="checkbox" id="wk-cheap" onchange="saveCheapMode()" style="width:auto">
+    💸 Cheap mode <span class="wk-opt">mini model, lower cost, less sharp</span>
+  </label>
+  <details id="wk-pretake" class="wk-prep wk-checklist" open>
+    <summary><span class="wk-cl-h">Pre-take card</span><span class="wk-badge" id="wk-badge-pretake"></span></summary>
+    <div style="font-size:10px;color:var(--muted);margin-top:2px">Three lines to glance at right before you record</div>
+    <label class="wk-l">Who am I?</label>
+    <textarea id="wk-pt-who" rows="1" placeholder="e.g. a nurse who just lost a patient" onblur="savePretakeFields()"></textarea>
+    <label class="wk-l">Who are you? <span class="wk-opt">my scene partner</span></label>
+    <textarea id="wk-pt-you" rows="1" placeholder="e.g. the doctor who signed the chart" onblur="savePretakeFields()"></textarea>
+    <label class="wk-l">What do I need? <span class="wk-opt">from them, right now</span></label>
+    <textarea id="wk-pt-need" rows="1" placeholder="e.g. for her to admit it was her call" onblur="savePretakeFields()"></textarea>
+    <div class="wk-actions-secondary" style="margin-top:10px">
+      <button class="ghost" id="wk-pt-draftbtn" onclick="draftPretake()">✨ Draft for me</button>
+      <span style="font-size:10px;color:var(--muted);align-self:center">Proposes answers from the scene — nothing is saved until you accept</span>
     </div>
-    <div id="wk-checklist" class="wk-checklist">
-      <div class="wk-cl-h">Pre-take checklist</div>
-      <label class="wk-l">What am I literally DOING? <span class="wk-opt">the verb, not the feeling</span></label>
-      <textarea id="wk-cl-verb" rows="1" placeholder="e.g. diagnosing the patient" onblur="saveChecklistFields()"></textarea>
-      <label class="wk-l">Where does this sit? <span class="wk-opt">structurally — does it need to hook</span></label>
-      <textarea id="wk-cl-position" rows="1" placeholder="e.g. top of Act 2, pilot — needs to hook" onblur="saveChecklistFields()"></textarea>
-      <label class="wk-l">Escalate or de-escalate?</label>
-      <textarea id="wk-cl-direction" rows="1" placeholder="what the beat needs, and what I'm choosing" onblur="saveChecklistFields()"></textarea>
-      <div class="wk-actions-secondary" style="margin-top:10px">
-        <button class="ghost" id="wk-cl-gutbtn" onclick="gutCheck()">🧠 Gut check</button>
-        <span style="font-size:10px;color:var(--muted);align-self:center">Gives its own read on all three, and checks yours against it</span>
-      </div>
-      <div id="wk-cl-result" class="wk-cl-result"></div>
+    <div id="wk-pt-draft" class="wk-cl-result"></div>
+  </details>
+  <details id="wk-checklist" class="wk-prep wk-checklist">
+    <summary><span class="wk-cl-h">Pre-take checklist</span><span class="wk-badge" id="wk-badge-checklist"></span></summary>
+    <label class="wk-l">What am I literally DOING? <span class="wk-opt">the verb, not the feeling</span></label>
+    <textarea id="wk-cl-verb" rows="1" placeholder="e.g. diagnosing the patient" onblur="saveChecklistFields()"></textarea>
+    <label class="wk-l">Where does this sit? <span class="wk-opt">structurally — does it need to hook</span></label>
+    <textarea id="wk-cl-position" rows="1" placeholder="e.g. top of Act 2, pilot — needs to hook" onblur="saveChecklistFields()"></textarea>
+    <label class="wk-l">Escalate or de-escalate?</label>
+    <textarea id="wk-cl-direction" rows="1" placeholder="what the beat needs, and what I'm choosing" onblur="saveChecklistFields()"></textarea>
+    <div class="wk-actions-secondary" style="margin-top:10px">
+      <button class="ghost" id="wk-cl-gutbtn" onclick="gutCheck()">🧠 Gut check</button>
+      <span style="font-size:10px;color:var(--muted);align-self:center">Gives its own read on all three, and checks yours against it</span>
     </div>
-    <div id="wk-setup">
-      <label class="wk-l">Casting / character breakdown <span class="wk-opt">optional</span></label>
-      <textarea id="wk-brk" rows="2" placeholder="Paste the casting breakdown or character description…" onblur="saveWkDraft()"></textarea>
-      <label class="wk-l">Your instinct <span class="wk-opt">optional</span></label>
-      <textarea id="wk-inst" rows="2" placeholder="Any read you already have…" onblur="saveWkDraft()"></textarea>
-    </div>
-    <div id="wk-revised-banner" style="display:none;background:rgba(251,191,36,.1);border:1px solid var(--amber);border-radius:8px;padding:10px 12px;font-size:12px;color:var(--amber);margin-bottom:12px">⚠ The script changed since this Story Analysis ran — hit 🔄 Redo below for an accurate read.</div>
-    <div id="wk-out" class="wk-out"></div>
-    <div id="wk-genall-wrap" style="display:none;margin-top:14px">
-      <button class="ghost" id="wk-genall" onclick="generateAllScenes()" style="width:100%">🎬 Generate all scene breakdowns</button>
-    </div>
+    <div id="wk-cl-result" class="wk-cl-result"></div>
+  </details>
+  <div id="wk-setup">
+    <label class="wk-l">Casting / character breakdown <span class="wk-opt">optional</span></label>
+    <textarea id="wk-brk" rows="2" placeholder="Paste the casting breakdown or character description…" onblur="saveWkDraft()"></textarea>
+    <label class="wk-l">Your instinct <span class="wk-opt">optional</span></label>
+    <textarea id="wk-inst" rows="2" placeholder="Any read you already have…" onblur="saveWkDraft()"></textarea>
+  </div>
+  <div id="wk-revised-banner" style="display:none;background:rgba(251,191,36,.1);border:1px solid var(--amber);border-radius:8px;padding:10px 12px;font-size:12px;color:var(--amber);margin-bottom:12px">⚠ The script changed since this Story Analysis ran — hit 🔄 Redo below for an accurate read.</div>
+  <div id="wk-out" class="wk-out"></div>
+  <div id="wk-genall-wrap" style="display:none;margin-top:14px">
+    <button class="ghost" id="wk-genall" onclick="generateAllScenes()" style="width:100%">🎬 Generate all scene breakdowns</button>
+  </div>
+  <div class="wk-actions-secondary" id="wk-secondary" style="display:none">
+    <button class="ghost" onclick="copyWork()" title="Copy to clipboard">📋 Copy</button>
+    <button class="ghost" onclick="downloadWorkMd()" title="Download as Markdown">⬇ Download .md</button>
+    <button class="ghost" onclick="redoWork()" title="Ask for a fresh breakdown, keeping this thread">🔄 Redo</button>
+    <button class="ghost" onclick="resetWork()">↻ Start over</button>
+    <span style="flex:1"></span>
+    <span style="font-size:10px;color:var(--muted);align-self:center">Hover any block to edit ✏️</span>
+  </div>
+  <div class="wk-dock">
     <div id="wk-followup" style="display:none">
       <button class="ghost wk-p2" onclick="phase2()">→ Now bring myself to it (Phase 2)</button>
       <textarea id="wk-msg" rows="2" placeholder="Ask a follow-up — e.g. take me through beat 3, or start Phase 2…"></textarea>
     </div>
     <div class="wk-actions">
       <button class="big" id="wk-go" onclick="sendWork()" style="flex:1">BREAK IT DOWN</button>
-    </div>
-    <div class="wk-actions-secondary" id="wk-secondary" style="display:none">
-      <button class="ghost" onclick="copyWork()" title="Copy to clipboard">📋 Copy</button>
-      <button class="ghost" onclick="downloadWorkMd()" title="Download as Markdown">⬇ Download .md</button>
-      <button class="ghost" onclick="redoWork()" title="Ask for a fresh breakdown, keeping this thread">🔄 Redo</button>
-      <button class="ghost" onclick="resetWork()">↻ Start over</button>
-      <span style="flex:1"></span>
-      <span style="font-size:10px;color:var(--muted);align-self:center">Hover any block to edit ✏️</span>
     </div>
     <div class="am-status" id="wk-status"></div>
   </div>
@@ -601,6 +610,7 @@ let SL=[],RL=[],cur=0,cleared=[],nCleared=0,mode='word',passed=false;
   if(el)el.value=({gem:gemKey,groq:groqKey,oai:oai})[id]||'';
 });
 document.getElementById('oai').addEventListener('keydown',e=>{if(e.key==='Enter')saveKeys();});
+document.getElementById('work-screen').addEventListener('input',()=>{if(typeof updatePrepBadges==='function')updatePrepBadges();});
 function saveKeys(){
   gemKey=document.getElementById('gem').value.trim();
   groqKey=document.getElementById('groq').value.trim();
@@ -2166,14 +2176,17 @@ function openWork(){
   }
   populateWkChars(getWkScene());
   document.getElementById('wk-cheap').checked=localStorage.getItem('offbook_cheap')!=='0';
-  document.getElementById('work-modal').classList.add('show');
   loadThread();
+  show('work-screen');
+  window.scrollTo(0,0);
 }
 // Defaults ON — she said she'd rather default to mini and opt into gpt-4o
 // per-scene when something actually matters, not the other way around.
 function saveCheapMode(){localStorage.setItem('offbook_cheap',document.getElementById('wk-cheap').checked?'1':'0');}
 function isCheapMode(){return document.getElementById('wk-cheap').checked;}
-function closeWork(){document.getElementById('work-modal').classList.remove('show');}
+// Back to the script view — SL/filters are untouched while Scene Work is open,
+// so there's nothing to rebuild.
+function closeWork(){show('script-screen');}
 // minimal markdown -> safe HTML (## headers, **bold**, - bullets, paragraphs)
 function mdToHtml(md){
   const lines=esc(md||'').split('\n');let html='',inUl=false;
@@ -2379,6 +2392,21 @@ function parsePretakeReply(reply){
   const out={who:s(obj.who),you:s(obj.you),need:s(obj.need)};
   return (out.who||out.you||out.need)?out:null;
 }
+// "n of m filled" badges on the collapsible prep blocks, so a closed block
+// still tells her whether there's anything in it.
+function updatePrepBadges(){
+  // The position field is pre-filled with a "Scene 1 of 2" hint — that's a
+  // suggestion, not her answer, so it doesn't count as filled.
+  const count=ids=>ids.filter(id=>{const el=document.getElementById(id);return el&&el.value.trim()&&!(id==='wk-cl-position'&&el.value.trim()===positionHint());}).length;
+  const set=(badgeId,ids)=>{
+    const b=document.getElementById(badgeId);if(!b)return;
+    const n=count(ids);
+    b.textContent=n+' of '+ids.length;
+    b.classList.toggle('done',n===ids.length);
+  };
+  set('wk-badge-pretake',['wk-pt-who','wk-pt-you','wk-pt-need']);
+  set('wk-badge-checklist',['wk-cl-verb','wk-cl-position','wk-cl-direction']);
+}
 function renderPretake(thread){
   const pt=(thread&&thread.pretake)||{};
   document.getElementById('wk-pt-who').value=pt.who||'';
@@ -2428,6 +2456,7 @@ async function draftPretake(){
       if(draft.you)document.getElementById('wk-pt-you').value=draft.you;
       if(draft.need)document.getElementById('wk-pt-need').value=draft.need;
       savePretakeFields();
+      updatePrepBadges();
       resEl.innerHTML='';
     };
     const skip=document.createElement('button');skip.className='ghost';skip.textContent='✕ Dismiss';
@@ -2556,7 +2585,14 @@ function renderThread(thread){
     }
     return `<div class="wk-msg-u">${esc(m.content)}<button class="wk-msg-edit" onclick="editMessage(${i})" title="Edit">✏️</button></div>`;
   }).join('');
-  out.scrollTop=out.scrollHeight;
+}
+// The thread is part of the page now (no inner scroller), so after a send or a
+// reply bring the newest block into view — a reply starts at its top so she
+// reads it from the beginning, not the tail.
+function wkScrollToLatest(){
+  const out=document.getElementById('wk-out');
+  const last=out&&out.lastElementChild;
+  if(last)last.scrollIntoView({behavior:'smooth',block:'start'});
 }
 function editMessage(idx){
   _editingIdx=idx;
@@ -2622,6 +2658,11 @@ function loadThread(){
   renderThread(thread);
   renderChecklist(thread);
   renderPretake(thread);
+  // Prep tucks away once the conversation has started (the badges still show
+  // what's filled, and a click reopens it); the card stays open either way.
+  document.getElementById('wk-checklist').open=!has;
+  document.getElementById('wk-pretake').open=true;
+  updatePrepBadges();
 }
 // Wrap user + script data in tags and escape any closing tags so the LLM treats scene/story content as DATA, not instructions.
 function _escTags(t){return (t||'').replace(/<\/?(scene|breakdown|instinct|story)>/gi,'[tag]');}
@@ -2684,6 +2725,7 @@ async function sendWork(){
       document.getElementById('wk-msg').value='';
     }
     renderThread(thread);
+    wkScrollToLatest();
     st.textContent = scene==='all' ? 'Reading the whole script…' : 'Working the scene…';
     const systemPrompt = scene==='all' ? STORY_PROMPT : CRAFT_PROMPT;
     // Story analysis is a short, exploratory pass — always run it on the
@@ -2695,6 +2737,7 @@ async function sendWork(){
     setWork(scene,char,thread);
     renderThread(thread);
     loadThread();
+    wkScrollToLatest();
     st.textContent='';
     if(isFreshBreakdown)maybeAutoGenre(); // fire-and-forget — best-effort, never blocks or overwrites a manual tag
   }catch(e){wkRenderError(st,e,sendWork);}
@@ -3636,7 +3679,7 @@ function restart(){cleared.fill(false);cur=0;nCleared=0;passed=false;mode='word'
 // all live in localStorage on this same origin. Not a contrived edge case —
 // an ordinary slugline like INT. THE "GREEN ROOM" - NIGHT is enough.
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-function show(id){flushSceneEdit();['step-key','step-upload','script-screen','read-screen','reh-screen','done-screen'].forEach(s=>document.getElementById(s).style.display=s===id?'block':'none');}
+function show(id){flushSceneEdit();['step-key','step-upload','script-screen','work-screen','read-screen','reh-screen','done-screen'].forEach(s=>document.getElementById(s).style.display=s===id?'block':'none');}
 </script>
 <script>
 // PWA: register the service worker and auto-update — but ONLY reload when the
@@ -3652,7 +3695,7 @@ if('serviceWorker' in navigator){
     // reload — an auto-update used to be able to silently kill a multi-scene
     // run in progress, with whatever hadn't saved yet just gone.
     if(typeof _wkJobRunning!=='undefined'&&_wkJobRunning)return false;
-    for(const id of ['script-screen','read-screen','reh-screen','done-screen','audio-modal','work-modal']){
+    for(const id of ['script-screen','read-screen','reh-screen','done-screen','audio-modal','work-screen']){
       const el=document.getElementById(id);
       if(el&&(el.classList.contains('show')||el.style.display!=='none'&&el.style.display!==''))return false;
     }
