@@ -137,28 +137,28 @@ t('chk empty spoken input never crashes and fails cleanly', chkWithMode('word', 
 // highlighting is right. ---
 t('dYou word mode: verbatim marks every word right (wo)',
   dYouWithMode('word', LINE, LINE),
-  '<span class="wo">You </span><span class="wo">said </span><span class="wo">you\'d </span><span class="wo">be </span><span class="wo">here </span><span class="wo">an </span><span class="wo">hour </span><span class="wo">ago. </span>');
+  '<span class="wo">You </span><span class="wo">said </span><span class="wo">you&#39;d </span><span class="wo">be </span><span class="wo">here </span><span class="wo">an </span><span class="wo">hour </span><span class="wo">ago. </span>');
 
 t('dYou word mode: a dropped trailing word leaves the spoken words that ARE there marked right',
   dYouWithMode('word', "You said you'd be here an hour.", LINE),
-  '<span class="wo">You </span><span class="wo">said </span><span class="wo">you\'d </span><span class="wo">be </span><span class="wo">here </span><span class="wo">an </span><span class="wo">hour. </span>');
+  '<span class="wo">You </span><span class="wo">said </span><span class="wo">you&#39;d </span><span class="wo">be </span><span class="wo">here </span><span class="wo">an </span><span class="wo">hour. </span>');
 t('dScr word mode: the script word she never said is flagged missing (wf), not silently matched',
   dScrWithMode('word', "You said you'd be here an hour.", LINE),
-  '<span class="wo">You </span><span class="wo">said </span><span class="wo">you\'d </span><span class="wo">be </span><span class="wo">here </span><span class="wo">an </span><span class="wo">hour </span><span class="wf">ago. </span>');
+  '<span class="wo">You </span><span class="wo">said </span><span class="wo">you&#39;d </span><span class="wo">be </span><span class="wo">here </span><span class="wo">an </span><span class="wo">hour </span><span class="wf">ago. </span>');
 
 t('dYou word mode: a totally different reading marks every spoken word wrong (ww)',
   dYouWithMode('word', 'Nothing like that at all.', LINE),
   '<span class="ww">Nothing </span><span class="ww">like </span><span class="ww">that </span><span class="ww">at </span><span class="ww">all. </span>');
 t('dScr word mode: with nothing matched, every script word is flagged missing',
   dScrWithMode('word', 'Nothing like that at all.', LINE),
-  '<span class="wf">You </span><span class="wf">said </span><span class="wf">you\'d </span><span class="wf">be </span><span class="wf">here </span><span class="wf">an </span><span class="wf">hour </span><span class="wf">ago. </span>');
+  '<span class="wf">You </span><span class="wf">said </span><span class="wf">you&#39;d </span><span class="wf">be </span><span class="wf">here </span><span class="wf">an </span><span class="wf">hour </span><span class="wf">ago. </span>');
 
 t('dYou word mode: a Whisper-style mishearing ("our" for "hour") is marked right on BOTH sides, not flagged as a miss',
   dYouWithMode('word', "You said you'd be here an our ago.", LINE),
-  '<span class="wo">You </span><span class="wo">said </span><span class="wo">you\'d </span><span class="wo">be </span><span class="wo">here </span><span class="wo">an </span><span class="wo">our </span><span class="wo">ago. </span>');
+  '<span class="wo">You </span><span class="wo">said </span><span class="wo">you&#39;d </span><span class="wo">be </span><span class="wo">here </span><span class="wo">an </span><span class="wo">our </span><span class="wo">ago. </span>');
 t('dScr word mode: the fuzzy-matched script word is marked right, not missing',
   dScrWithMode('word', "You said you'd be here an our ago.", LINE),
-  '<span class="wo">You </span><span class="wo">said </span><span class="wo">you\'d </span><span class="wo">be </span><span class="wo">here </span><span class="wo">an </span><span class="wo">hour </span><span class="wo">ago. </span>');
+  '<span class="wo">You </span><span class="wo">said </span><span class="wo">you&#39;d </span><span class="wo">be </span><span class="wo">here </span><span class="wo">an </span><span class="wo">hour </span><span class="wo">ago. </span>');
 
 // A leading extra word shifts every later spoken-word index one ahead of its
 // matching script-word index (spoken[1]="you" matches script[0]="you", etc).
@@ -169,10 +169,10 @@ t('dScr word mode: the fuzzy-matched script word is marked right, not missing',
 const SPOKEN_WITH_LEADING_EXTRA = "Well you said you'd be here an hour ago.";
 t('dYou word mode: an inserted leading word is marked wrong even though every later word\'s index is now offset from the script\'s',
   dYouWithMode('word', SPOKEN_WITH_LEADING_EXTRA, LINE),
-  '<span class="ww">Well </span><span class="wo">you </span><span class="wo">said </span><span class="wo">you\'d </span><span class="wo">be </span><span class="wo">here </span><span class="wo">an </span><span class="wo">hour </span><span class="wo">ago. </span>');
+  '<span class="ww">Well </span><span class="wo">you </span><span class="wo">said </span><span class="wo">you&#39;d </span><span class="wo">be </span><span class="wo">here </span><span class="wo">an </span><span class="wo">hour </span><span class="wo">ago. </span>');
 t('dScr word mode: despite that index offset, every real script word is still correctly matched, none wrongly flagged missing',
   dScrWithMode('word', SPOKEN_WITH_LEADING_EXTRA, LINE),
-  '<span class="wo">You </span><span class="wo">said </span><span class="wo">you\'d </span><span class="wo">be </span><span class="wo">here </span><span class="wo">an </span><span class="wo">hour </span><span class="wo">ago. </span>');
+  '<span class="wo">You </span><span class="wo">said </span><span class="wo">you&#39;d </span><span class="wo">be </span><span class="wo">here </span><span class="wo">an </span><span class="wo">hour </span><span class="wo">ago. </span>');
 
 t('dYou: HTML special characters in a word are escaped, not injected raw into the rendered span',
   dYouWithMode('word', 'Rock & roll is <loud>.', 'Rock & roll is <loud>.'),

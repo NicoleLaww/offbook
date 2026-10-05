@@ -118,7 +118,6 @@ const scope = new Function(`
   ${extractFn('commonNamePrefix')}
   ${extractFn('projectCharacters')}
   ${extractFn('projectGenre')}
-  ${extractFn('fillEmptyGenres')}
   ${extractFn('projectNames')}
   ${extractFn('playingChars')}
   ${extractFn('projectDigest')}
@@ -144,9 +143,9 @@ const scope = new Function(`
   ${extractFn('setWork')}
   ${extractFn('wkChat')}
   ${extractFn('saveChat')}
-  return { COACH_ASK_SUFFIX, COACH_ASK_SUFFIX_OLD, COACH_TAKE_NUDGE, norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, recomputeScenes, setSL: v => SL = v, getSL: () => SL, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, looksLikeUnsplitScenes, parseSceneBreaks, parseCoachQuestions, buildCoachAnswerMessage, charKey, roleOptions, sideLabelFromFilename, commonNamePrefix, projectCharacters, projectGenre, fillEmptyGenres, projectNames, playingChars, projectDigest, pickCarriedProject, joinRowItems, cleanPageText, isSlugline, filterHeadings, extractCompassOffer, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache: v => _scriptsCache = v, setCurName: v => curName = v, setWkTab: v => _wkTab = v, getScriptsCache: () => _scriptsCache, setSessionWork: v => _sessionWork = v, setSceneFilter: v => _sceneFilter = v, setLogView: v => _logView = v };
+  return { COACH_ASK_SUFFIX, COACH_ASK_SUFFIX_OLD, COACH_TAKE_NUDGE, norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, recomputeScenes, setSL: v => SL = v, getSL: () => SL, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, looksLikeUnsplitScenes, parseSceneBreaks, parseCoachQuestions, buildCoachAnswerMessage, charKey, roleOptions, sideLabelFromFilename, commonNamePrefix, projectCharacters, projectGenre, projectNames, playingChars, projectDigest, pickCarriedProject, joinRowItems, cleanPageText, isSlugline, filterHeadings, extractCompassOffer, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache: v => _scriptsCache = v, setCurName: v => curName = v, setWkTab: v => _wkTab = v, getScriptsCache: () => _scriptsCache, setSessionWork: v => _sessionWork = v, setSceneFilter: v => _sceneFilter = v, setLogView: v => _logView = v };
 `)();
-const { COACH_ASK_SUFFIX, COACH_ASK_SUFFIX_OLD, COACH_TAKE_NUDGE, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, setSL, getSL, recomputeScenes, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, looksLikeUnsplitScenes, parseSceneBreaks, parseCoachQuestions, buildCoachAnswerMessage, charKey, roleOptions, sideLabelFromFilename, commonNamePrefix, projectCharacters, projectGenre, fillEmptyGenres, projectNames, playingChars, projectDigest, pickCarriedProject, joinRowItems, cleanPageText, isSlugline, filterHeadings, extractCompassOffer, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache, setCurName, setWkTab, getScriptsCache, setSessionWork, setSceneFilter, setLogView } = scope;
+const { COACH_ASK_SUFFIX, COACH_ASK_SUFFIX_OLD, COACH_TAKE_NUDGE, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, setSL, getSL, recomputeScenes, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, looksLikeUnsplitScenes, parseSceneBreaks, parseCoachQuestions, buildCoachAnswerMessage, charKey, roleOptions, sideLabelFromFilename, commonNamePrefix, projectCharacters, projectGenre, projectNames, playingChars, projectDigest, pickCarriedProject, joinRowItems, cleanPageText, isSlugline, filterHeadings, extractCompassOffer, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache, setCurName, setWkTab, getScriptsCache, setSessionWork, setSceneFilter, setLogView } = scope;
 
 let pass = 0, fail = 0;
 function t(desc, actual, expected) {
@@ -814,12 +813,6 @@ t('projectCharacters: every character across the sides with how many sides they 
 t('projectCharacters: no scripts is empty', projectCharacters([]), []);
 t('projectGenre: the first non-empty tag among the members', projectGenre([sideA, sideB]), 'psychological thriller');
 t('projectGenre: none tagged is empty', projectGenre([{ genre: '' }, {}]), '');
-{
-  const arr = [{ project: 'P', genre: '' }, { project: 'P', genre: 'noir' }, { project: 'P' }, { project: 'Other', genre: '' }, { genre: '' }];
-  const n = fillEmptyGenres(arr, 'P', 'thriller');
-  t('fillEmptyGenres: fills only EMPTY members of that project, never overwrites a tag she set, never touches other projects',
-    { n, genres: arr.map(s => s.genre) }, { n: 2, genres: ['thriller', 'noir', 'thriller', '', ''] });
-}
 t('projectNames: distinct project names in first-seen order', projectNames([{ project: 'B' }, { project: 'A' }, { project: 'B' }, {}]), ['B', 'A']);
 t('playingChars: the characters on the lines she marked, de-duplicated, cut lines ignored',
   playingChars([L('ABBY', { isMine: true }), L('CHARLOTTE'), L('ABBY (CONT’D)', { isMine: true }), L('MAN', { isMine: true, cut: true })]), ['ABBY']);

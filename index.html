@@ -596,11 +596,16 @@
 <!-- PDF.js loaded from CDN as a module — most reliable method -->
 <script type="module">
 // Load PDF.js
-const pdfjs = await import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.min.mjs');
-pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs';
-window.pdfjs = pdfjs;
-window.pdfjsReady = true;
-window.dispatchEvent(new Event('pdfjsready'));
+try{
+  const pdfjs = await import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.min.mjs');
+  pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs';
+  window.pdfjs = pdfjs;
+  window.pdfjsReady = true;
+  window.dispatchEvent(new Event('pdfjsready'));
+}catch(e){
+  // Offline first launch or a blocked CDN — extractPDFPages() has its own
+  // timeout and friendly error, so just leave pdfjsReady false.
+}
 </script>
 
 <script>
@@ -678,10 +683,38 @@ async function initScriptsCache(){
 }
 initScriptsCache(); // fire immediately at script load, not gated on any user action
 function loadSaved(){return _scriptsCache||[];}
+// Persistence is debounced (trailing edge): line-clicks can fire saveCurrent()
+// several times a second, and each used to rewrite the whole scripts blob to
+// IndexedDB. The in-memory cache still updates synchronously, so the only cost
+// of debouncing is fewer disk writes; a beforeunload/pagehide flush covers the
+// short window. Failures now surface a warning instead of pretending to save.
+let _persistTimer=null;
 function writeSaved(arr){
   _scriptsCache=arr; // synchronous — every caller's next loadSaved() sees this instantly, no race
-  idbSet('scripts','all',arr); // fire-and-forget background persist
+  clearTimeout(_persistTimer);
+  _persistTimer=setTimeout(()=>{
+    idbSet('scripts','all',arr).then(ok=>ok?storageWarnClear():storageWarn('⚠ Couldn\'t save to browser storage — your latest changes may not survive a reload. Delete an old script or export a backup.'));
+  },300);
 }
+function flushPendingSave(){if(_persistTimer){clearTimeout(_persistTimer);idbSet('scripts','all',_scriptsCache||[]);}}
+window.addEventListener('beforeunload',flushPendingSave);
+window.addEventListener('pagehide',flushPendingSave);
+// One shared, dismissible banner for storage failures.
+let _storageBanner=null;
+function storageWarn(msg){
+  if(!_storageBanner){
+    _storageBanner=document.createElement('div');
+    _storageBanner.style.cssText='position:fixed;bottom:12px;left:50%;transform:translateX(-50%);z-index:900;background:#7f1d1d;color:#fff;padding:10px 14px;border-radius:8px;font-size:13px;max-width:calc(100vw - 40px);display:flex;gap:10px;align-items:center;box-shadow:0 8px 30px rgba(0,0,0,.5);';
+    const sp=document.createElement('span');sp.id='storage-warn-msg';
+    const x=document.createElement('button');x.textContent='✕';x.title='Dismiss';x.style.cssText='background:none;border:none;color:#fff;cursor:pointer;font-size:14px;padding:2px 6px;';
+    x.onclick=()=>{_storageBanner.remove();_storageBanner=null;};
+    _storageBanner.append(sp,x);
+    document.body.appendChild(_storageBanner);
+  }
+  document.getElementById('storage-warn-msg').textContent=msg;
+  _storageBanner.style.display='flex';
+}
+function storageWarnClear(){if(_storageBanner)_storageBanner.style.display='none';}
 // Returns the name of the script evicted to stay under the 500-script cap
 // (oldest survives longest since rest.unshift puts the current one first),
 // or null if nothing was evicted — so a fresh upload can tell you it happened
@@ -750,13 +783,6 @@ function projectCharacters(scripts){
 function projectGenre(scripts){
   for(const s of scripts||[]){const g=(s.genre||'').trim();if(g)return g;}
   return '';
-}
-// Fills genre onto members that don't have one yet — never overwrites a tag she
-// already set. Mutates in place; returns how many it filled.
-function fillEmptyGenres(arr,project,genre){
-  let n=0;
-  for(const s of arr||[]){if(s.project===project&&!(s.genre||'').trim()){s.genre=genre;n++;}}
-  return n;
 }
 function projectNames(arr){
   const out=[];
@@ -895,6 +921,13 @@ function dismissMergeSuggestion(){_mergeSuggestion=null;renderMergeSuggestBanner
 function delScript(name){
   if(!confirm('Delete saved script "'+name+'"?'))return;
   writeSaved(loadSaved().filter(s=>s.name!==name));
+  if(curName===name){
+    // The open script just got deleted — clear the in-memory state so a stray
+    // saveCurrent() can't silently resurrect it, and land back on the library.
+    curName='';SL=[];
+    const fn=document.getElementById('fname');if(fn)fn.textContent='';
+    show('step-upload');
+  }
   renderSaved();
 }
 // A script's name is the key everywhere else that points back at it —
@@ -960,7 +993,12 @@ function toggleScriptRoute(name){
   const s=arr.find(x=>x.name===name);if(!s)return;
   s.route=(s.route||'paid')==='paid'?'free':'paid';
   writeSaved(arr);
-  if(curName===name){uploadRoute=s.route;updateScriptRouteBadge();} // keep the open script's own badge (and any in-flight AI calls) in sync
+  if(curName===name)updateScriptRouteBadge(); // keep the open script's own badge in sync
+  // Deliberately NOT touching uploadRoute here: that global is the route for
+  // the NEXT upload, picked on the upload screen's tile. Flipping one saved
+  // script used to silently change it too — a confidential script could land
+  // on the free route without the tile showing it. In-flight calls use
+  // getScriptRoute(curName) explicitly, so they're unaffected by this.
   renderSaved();
 }
 function updateScriptRouteBadge(){
@@ -1090,7 +1128,7 @@ function buildProjectHeader(name,members){
 }
 function renderSaved(){
   renderRevisionPicker();
-  renderCoachLog();
+  _scheduleCoachLogRefresh();
   renderLastBackupLabel();
   renderGenreGate(); // called here too (not just after the forEach below) so the empty-state gate still shows with zero saved scripts
   renderGemOverloadNote();
@@ -1157,13 +1195,14 @@ async function addLogEntry(){
   // Date.now() alone can collide — two adds in the same millisecond (easy to
   // trigger programmatically, confirmed while testing) would get the SAME id,
   // and delLogEntry(id) would then delete every entry matching it, not just one.
-  await idbAdd('coachlog',{id:Date.now()+'-'+Math.random().toString(36).slice(2),text,at:Date.now(),scriptName:scriptName||null,theme:theme||null});
+  const saved=await idbAdd('coachlog',{id:Date.now()+'-'+Math.random().toString(36).slice(2),text,at:Date.now(),scriptName:scriptName||null,theme:theme||null});
+  if(!saved){storageWarn('⚠ Couldn\'t save that note — storage is full or blocked. Export a backup before closing this page.');return;}
   ta.value='';
   if(scriptSel)scriptSel.value='';
   if(themeEl)themeEl.value='';
   await renderCoachLog();
 }
-async function delLogEntry(id){if(!confirm('Delete this note?'))return;await idbDelete('coachlog',id);await renderCoachLog();}
+async function delLogEntry(id){if(!confirm('Delete this note?'))return;const ok=await idbDelete('coachlog',id);if(!ok)storageWarn('⚠ Couldn\'t delete that note — storage is full or blocked.');await renderCoachLog();}
 // Mirrors renderRevisionPicker()'s pattern: regenerate options from the
 // current saved scripts, keep the in-progress selection if it's still valid.
 function renderLogScriptPicker(){
@@ -1210,6 +1249,15 @@ function setLogView(v){
 // of notes at once.
 let _logLimit=20;
 function showMoreLog(){_logLimit+=20;renderCoachLog();}
+// renderSaved() fires on every line-click save; renderCoachLog() re-reads the
+// whole coach-log store and rebuilds its DOM — coalesce that churn (trailing
+// edge) instead of paying it on every single click. Opening the log tab still
+// renders immediately (setMainTab calls renderCoachLog() directly).
+let _coachLogTimer=null;
+function _scheduleCoachLogRefresh(){
+  clearTimeout(_coachLogTimer);
+  _coachLogTimer=setTimeout(()=>renderCoachLog(),400);
+}
 async function renderCoachLog(){
   const list=document.getElementById('log-list');if(!list)return;
   renderLogScriptPicker();
@@ -1309,7 +1357,7 @@ function renderTagSuggestions(suggestions,untagged){
     row.innerHTML=`<div class="nm" style="white-space:normal">${esc(preview)}<br><span class="kfree">🏷️ ${esc(s.theme)}</span></div>`;
     const use=document.createElement('button');use.className='ghost';use.textContent='✓ Use this';
     const skip=document.createElement('button');skip.className='del';skip.textContent='✕';
-    const apply=async()=>{await idbAdd('coachlog',{...entry,theme:s.theme});row.remove();await renderCoachLog();};
+    const apply=async()=>{if(!row.isConnected)return;const ok=await idbAdd('coachlog',{...entry,theme:s.theme});if(!ok){storageWarn('⚠ Couldn\'t save that tag — storage is full or blocked.');return;}row.remove();await renderCoachLog();};
     use.onclick=apply;
     skip.onclick=()=>row.remove();
     row.appendChild(use);row.appendChild(skip);
@@ -1458,7 +1506,7 @@ async function runGenreAnalysis(){
     // so material from a confidential script never rides along on a free call.
     const route=[...contributingScripts].every(n=>getScriptRoute(n)==='free')&&contributingScripts.size ? 'free' : 'paid';
     const reply=await craftLLM(GENRE_PROMPT,[{role:'user',content:prompt}],true,route);
-    localStorage.setItem('offbook_genre',JSON.stringify({reply,at:Date.now()}));
+    try{localStorage.setItem('offbook_genre',JSON.stringify({reply,at:Date.now()}));}catch(e){} // cache only — a failed cache write must not eat the paid reply
     if(resEl)resEl.innerHTML=mdToHtml(reply);
   }catch(e){
     if(resEl)resEl.innerHTML='<span style="color:var(--accent)">⚠ '+esc(/fetch/i.test(e.message)?'Couldn\'t reach the model — check your key has credits':e.message)+'</span>';
@@ -1493,26 +1541,30 @@ function askOCR(n){
 // One or several PDFs. Several at once = several sides of one project: each
 // still becomes its own script (parsed exactly as a single upload is), linked
 // by a shared project name — typed, or guessed from the common filename start.
+let _uploadBusy=false; // a SW auto-update must not yank the page mid-upload — safeToReload() checks this
 async function doFiles(fileList){
   const files=[...(fileList||[])].filter(Boolean);
   if(!files.length)return;
-  const typed=(document.getElementById('proj-name').value||'').trim();
-  if(files.length===1){
-    await doPDF(files[0],{project:typed});
+  _uploadBusy=true;
+  try{
+    const typed=(document.getElementById('proj-name').value||'').trim();
+    if(files.length===1){
+      await doPDF(files[0],{project:typed});
+      document.getElementById('proj-name').value='';
+      document.getElementById('pdfin').value='';
+      return;
+    }
+    const project=typed||commonNamePrefix(files.map(f=>f.name));
+    const revEl=document.getElementById('rev-of');if(revEl)revEl.value='';
+    for(let i=0;i<files.length;i++){
+      document.getElementById('upst').textContent=`File ${i+1} of ${files.length}: ${files[i].name}…`;
+      await doPDF(files[i],{project,batch:true});
+    }
     document.getElementById('proj-name').value='';
     document.getElementById('pdfin').value='';
-    return;
-  }
-  const project=typed||commonNamePrefix(files.map(f=>f.name));
-  const revEl=document.getElementById('rev-of');if(revEl)revEl.value='';
-  for(let i=0;i<files.length;i++){
-    document.getElementById('upst').textContent=`File ${i+1} of ${files.length}: ${files[i].name}…`;
-    await doPDF(files[i],{project,batch:true});
-  }
-  document.getElementById('proj-name').value='';
-  document.getElementById('pdfin').value='';
-  goLibrary();
-  document.getElementById('upst').textContent=`✓ ${files.length} sides added`+(project?` to project “${project}”`:'')+'.';
+    goLibrary();
+    document.getElementById('upst').textContent=`✓ ${files.length} sides added`+(project?` to project “${project}”`:'')+'.';
+  }finally{_uploadBusy=false;}
 }
 async function doPDF(file,opts){
   opts=opts||{};
@@ -1795,7 +1847,9 @@ async function doPDF(file,opts){
     if(e&&e.name==='PasswordException'){
       msg='This PDF is password-protected — Offbook can\'t read protected PDFs. Remove the password (or export/print an unprotected copy) and re-upload.';
     } else if(/failed to fetch|networkerror|load failed|fetch/i.test(msg)){
-      msg="Couldn't reach OpenAI. Most likely your key is out of credits or hit a spending limit (check platform.openai.com → Billing). Also check you're online and no ad-blocker/VPN is blocking api.openai.com.";
+      msg = uploadRoute==='free'
+        ? "Couldn't reach Gemini. Check you're online and that your Gemini key is valid with free quota left (aistudio.google.com) — an ad-blocker or VPN can also block the request."
+        : "Couldn't reach OpenAI. Most likely your key is out of credits or hit a spending limit (check platform.openai.com → Billing). Also check you're online and no ad-blocker/VPN is blocking api.openai.com.";
     }
     document.getElementById('uperr').textContent=msg;
     document.getElementById('upst').textContent='';
@@ -1858,10 +1912,15 @@ function filterHeadings(lines,sourceText){
   return out;
 }
 async function extractPDFPages(file){
-  // Wait for pdfjs to be ready
+  // Wait for pdfjs to be ready — with a hard timeout so a blocked/failed CDN
+  // load can't leave the spinner spinning forever with no error.
   if(!window.pdfjsReady){
-    await new Promise(res=>window.addEventListener('pdfjsready',res,{once:true}));
+    await Promise.race([
+      new Promise(res=>window.addEventListener('pdfjsready',res,{once:true})),
+      new Promise(res=>setTimeout(res,20000))
+    ]);
   }
+  if(!window.pdfjsReady)throw new Error("Couldn't load the PDF reader (it loads on first use) — check your connection or ad-blocker, then reload the page and try again.");
   const pdfjs=window.pdfjs;
   const buf=await file.arrayBuffer();
   const pdf=await pdfjs.getDocument({data:buf}).promise;
@@ -3408,9 +3467,14 @@ async function sendWork(){
       document.getElementById('wk-followup').style.display='block';
     } else {
       const msg=document.getElementById('wk-msg').value.trim();
-      if(!msg){_wkJobRunning--;setWkButtonsBusy(false);return;}
-      thread.messages.push({role:'user',content:msg});
-      document.getElementById('wk-msg').value='';
+      // A retry after a failed send: the message was already pushed into the
+      // thread and the input cleared before the call that failed, so an empty
+      // box with a trailing user message means "resend what's there", not
+      // "nothing to do" (which used to make every retry button a silent no-op).
+      const lastMsg=thread.messages[thread.messages.length-1];
+      const isRetry=!msg&&lastMsg&&lastMsg.role==='user';
+      if(!msg&&!isRetry){_wkJobRunning--;setWkButtonsBusy(false);return;}
+      if(msg){thread.messages.push({role:'user',content:msg});document.getElementById('wk-msg').value='';}
       // A chat started under the old wording still carries "don't answer them" in
       // its first message — bring it in line so it can't override the new rules.
       if(coach&&thread.messages[0]&&thread.messages[0].content.endsWith(COACH_ASK_SUFFIX_OLD)){
@@ -3429,7 +3493,10 @@ async function sendWork(){
     let payload=thread.messages;
     if(coach&&!isFreshBreakdown){
       const last=thread.messages[thread.messages.length-1];
-      if(last&&last.role==='user'&&!/^I'm stumped/i.test(last.content)){
+      // The ask round (first message, and any retry of it) must NOT get the
+      // "I've answered" nudge — that nudge belongs only on her actual answers.
+      const isAskRound=last&&last.role==='user'&&(last.content.endsWith(COACH_ASK_SUFFIX)||last.content.endsWith(COACH_ASK_SUFFIX_OLD));
+      if(last&&last.role==='user'&&!/^I'm stumped/i.test(last.content)&&!isAskRound){
         payload=thread.messages.map((m,i)=>i===thread.messages.length-1?{...m,content:m.content+COACH_TAKE_NUDGE}:m);
       }
     }
@@ -3740,12 +3807,10 @@ function encodeWAV(samples,sr){
   return new Blob([v],{type:'audio/wav'});
 }
 // Cache generated tracks (IndexedDB) so the same settings don't re-charge TTS.
-// v2 adds 'activity' (the permanent, automatic history log) alongside the
-// original 'audio' cache store — same database, same proven pattern, so the
-// audio cache is untouched by this and needs no migration of its own.
+// v2 added an 'activity' store alongside 'audio', later removed (the feature
+// was dropped) — the create line is gone; old rows just sit inert in the DB.
 function idbOpen(){return new Promise((res,rej)=>{const r=indexedDB.open('offbook',4);r.onupgradeneeded=()=>{
   if(!r.result.objectStoreNames.contains('audio'))r.result.createObjectStore('audio');
-  if(!r.result.objectStoreNames.contains('activity'))r.result.createObjectStore('activity',{keyPath:'id'});
   if(!r.result.objectStoreNames.contains('coachlog'))r.result.createObjectStore('coachlog',{keyPath:'id'});
   if(!r.result.objectStoreNames.contains('scripts'))r.result.createObjectStore('scripts'); // plain key-value, same shape as 'audio' — writeSaved() always writes the whole array as one blob
 };r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});}
@@ -3754,10 +3819,10 @@ function idbOpen(){return new Promise((res,rej)=>{const r=indexedDB.open('offboo
 // of the page, four stores' worth accumulating with no way to ever cleanly
 // wipe the database. Closing after the awaited result, not before.
 async function idbGet(store,k){try{const db=await idbOpen();const v=await new Promise(res=>{const t=db.transaction(store).objectStore(store).get(k);t.onsuccess=()=>res(t.result===undefined?null:t.result);t.onerror=()=>res(null);});db.close();return v;}catch(e){return null;}}
-async function idbSet(store,k,v){try{const db=await idbOpen();await new Promise(res=>{const t=db.transaction(store,'readwrite').objectStore(store).put(v,k);t.onsuccess=()=>res();t.onerror=()=>res();});db.close();}catch(e){}}
+async function idbSet(store,k,v){try{const db=await idbOpen();await new Promise((res,rej)=>{const r=db.transaction(store,'readwrite').objectStore(store).put(v,k);r.onsuccess=()=>res();r.onerror=()=>rej(r.error||new Error('write failed'));});db.close();return true;}catch(e){return false;}}
 async function idbGetAll(store){try{const db=await idbOpen();const v=await new Promise(res=>{const t=db.transaction(store).objectStore(store).getAll();t.onsuccess=()=>res(t.result||[]);t.onerror=()=>res([]);});db.close();return v;}catch(e){return [];}}
-async function idbAdd(store,v){try{const db=await idbOpen();await new Promise(res=>{const t=db.transaction(store,'readwrite').objectStore(store).put(v);t.onsuccess=()=>res();t.onerror=()=>res();});db.close();}catch(e){}}
-async function idbDelete(store,id){try{const db=await idbOpen();await new Promise(res=>{const t=db.transaction(store,'readwrite').objectStore(store).delete(id);t.onsuccess=()=>res();t.onerror=()=>res();});db.close();}catch(e){}}
+async function idbAdd(store,v){try{const db=await idbOpen();await new Promise((res,rej)=>{const r=db.transaction(store,'readwrite').objectStore(store).put(v);r.onsuccess=()=>res();r.onerror=()=>rej(r.error||new Error('write failed'));});db.close();return true;}catch(e){return false;}}
+async function idbDelete(store,id){try{const db=await idbOpen();await new Promise((res,rej)=>{const r=db.transaction(store,'readwrite').objectStore(store).delete(id);r.onsuccess=()=>res();r.onerror=()=>rej(r.error||new Error('delete failed'));});db.close();return true;}catch(e){return false;}}
 function dlBlob(blob,fname){const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=fname;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),4000);}
 
 // BACKUP — export/import reduces data-loss risk (device switch, browser
@@ -3775,13 +3840,12 @@ async function exportAllData(){
       exportedAt:Date.now(),
       scripts:loadSaved(),
       coachLog:await idbGetAll('coachlog'),
-      activity:await idbGetAll('activity'),
       patternsCache:loadPatternsCache(),
       genreCache:loadGenreCache(),
     };
     const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
     dlBlob(blob,`offbook-backup-${new Date().toISOString().slice(0,10)}.json`);
-    status.textContent=`✓ Exported ${payload.scripts.length} script${payload.scripts.length===1?'':'s'}, ${payload.coachLog.length} coaching note${payload.coachLog.length===1?'':'s'}, ${payload.activity.length} activity entries.`;
+    status.textContent=`✓ Exported ${payload.scripts.length} script${payload.scripts.length===1?'':'s'}, ${payload.coachLog.length} coaching note${payload.coachLog.length===1?'':'s'}.`;
     localStorage.setItem('offbook_last_export',String(Date.now()));
     renderLastBackupLabel();
   }catch(e){
@@ -3812,7 +3876,7 @@ async function importAllData(file){
     let added=0,skipped=0;
     const merged=[...existing];
     for(const s of (Array.isArray(payload.scripts)?payload.scripts:[])){
-      if(!s||!s.name||existingNames.has(s.name)){skipped++;continue;}
+      if(!s||!s.name||typeof s.name!=='string'||!Array.isArray(s.lines)||existingNames.has(s.name)){skipped++;continue;}
       merged.push(s);existingNames.add(s.name);added++;
     }
     writeSaved(merged);
@@ -3825,14 +3889,18 @@ async function importAllData(file){
       if(!e||!e.id||existingLogIds.has(e.id))continue;
       await idbAdd('coachlog',e);logAdded++;
     }
-    let actAdded=0;
-    const existingActIds=new Set((await idbGetAll('activity')).map(e=>e.id));
-    for(const e of (Array.isArray(payload.activity)?payload.activity:[])){
-      if(!e||!e.id||existingActIds.has(e.id))continue;
-      await idbAdd('activity',e);actAdded++;
+    // Cached AI summaries (Coach's Notes / genre comparison) ride along in the
+    // export, so importing should bring them back too — only when nothing is
+    // cached already; a cache is disposable either way.
+    let cacheRestored=false;
+    if(payload.patternsCache&&typeof payload.patternsCache==='object'&&!loadPatternsCache()){
+      try{localStorage.setItem('offbook_patterns',JSON.stringify(payload.patternsCache));cacheRestored=true;}catch(e){}
+    }
+    if(payload.genreCache&&typeof payload.genreCache==='object'&&!loadGenreCache()){
+      try{localStorage.setItem('offbook_genre',JSON.stringify(payload.genreCache));cacheRestored=true;}catch(e){}
     }
 
-    status.textContent=`✓ Imported ${added} script${added===1?'':'s'}${skipped?` (${skipped} skipped — already have ${skipped===1?'it':'them'})`:''}, ${logAdded} coaching note${logAdded===1?'':'s'}, ${actAdded} activity entries.`;
+    status.textContent=`✓ Imported ${added} script${added===1?'':'s'}${skipped?` (${skipped} skipped — already have ${skipped===1?'it':'them'})`:''}, ${logAdded} coaching note${logAdded===1?'':'s'}.`+(cacheRestored?' (cached summaries restored)':'');
     renderSaved();
   }catch(e){
     status.textContent='⚠ '+(e.message==='not-valid'||/JSON/i.test(e.message)?"That file isn't a valid Offbook backup.":'Import failed: '+e.message);
@@ -4050,9 +4118,12 @@ function toggleRec(){
   if(recording)stopRec();else startRec();
 }
 
+let transcribing=false; // between stop and graded — navigation and re-record are locked
 async function startRec(e){
   if(e&&e.preventDefault)e.preventDefault();
-  if(passed||recording)return;
+  if(transcribing){setSt('⏳ Still transcribing — one sec');return;}
+  if(passed){setSt('✓ This line is cleared — hit Next, or tap "Try again" to redo it');return;}
+  if(recording)return;
   document.getElementById('cmp').classList.remove('show');
   passed=false;
   try{str=await getMic();}
@@ -4065,15 +4136,23 @@ async function startRec(e){
 
 async function stopRec(e){
   if(e&&e.preventDefault)e.preventDefault();
-  if(!recording)return;recording=false;
+  if(!recording)return;recording=false;transcribing=true;
+  // Freeze the target NOW: navigation is locked while transcribing, and the
+  // grade uses this captured index/line so a late reply can never be scored
+  // against whatever line is current by then.
+  const targetIdx=cur,targetLine=RL[cur];
   const b=document.getElementById('ptt');b.textContent='🎤  Tap to Speak';b.classList.remove('on');b.classList.add('wait');
   setSt('⏳ Transcribing...');mr.stop();// keep mic open for an instant next take
-  await new Promise(res=>mr.onstop=res);
-  await doWhisper(new Blob(chunks,{type:recMime}));
-  b.classList.remove('wait');
+  try{
+    await new Promise(res=>mr.onstop=res);
+    await doWhisper(new Blob(chunks,{type:recMime}),targetIdx,targetLine);
+  }finally{
+    transcribing=false;
+    b.classList.remove('wait');
+  }
 }
 
-async function doWhisper(blob){
+async function doWhisper(blob,targetIdx,targetLine){
   if(!groqKey&&!oai){setSt('Add a Groq key (free) or OpenAI key to transcribe');return;}
   // Route to Groq (free, ~9x cheaper) when available, else OpenAI Whisper.
   const useGroq=!!groqKey;
@@ -4092,7 +4171,7 @@ async function doWhisper(blob){
     const data=await res.json();
     const spoken=(data.text||'').trim();
     setSt('');
-    if(spoken)evalLine(spoken);else setSt('Nothing heard — try again');
+    if(spoken)evalLine(spoken,targetIdx,targetLine);else setSt('Nothing heard — try again');
   }catch(e){setSt('⚠ '+(/fetch/i.test(e.message)?'Network/credits issue — check your key':e.message));}
 }
 
@@ -4108,21 +4187,32 @@ document.addEventListener('keydown',e=>{
 document.addEventListener('keyup',e=>{if(_typing(e))return;if(e.code==='Space'){e.preventDefault();spaceDown=false;stopRec();}});
 
 let lastSpoken='';
-function evalLine(spoken){
+function evalLine(spoken,targetIdx,targetLine){
   lastSpoken=spoken;
-  const correct=RL[cur].text;
+  // Grade the line that was recorded, not whatever is on screen now — even
+  // though navigation is locked while transcribing, this keeps a late reply
+  // from ever marking the wrong line.
+  const idx=targetIdx!==undefined?targetIdx:cur;
+  const li=targetLine||RL[idx];
+  const correct=li.text;
   const ok=chk(spoken,correct);
-  const el=document.getElementById('rl-'+RL[cur].id);
+  const el=document.getElementById('rl-'+li.id);
   if(el)el.classList.remove('blacked');
   const bn=document.getElementById('cbanner');
   bn.className='cb '+(ok?'pass':'fail');
   bn.textContent=ok?'✓  Cleared':'✗  Not quite';
   document.getElementById('cyou').innerHTML=dYou(spoken,correct);
   document.getElementById('cscr').innerHTML=dScr(spoken,correct);
-  document.getElementById('nxtbtn').style.display=ok?'inline-block':'none';
-  document.getElementById('speakbtn').style.display=ok?'none':'inline-block';
   document.getElementById('cmp').classList.add('show');
-  if(ok){passed=true;if(!cleared[cur]){cleared[cur]=true;nCleared++;}updProg();}
+  if(ok){
+    if(!cleared[idx]){cleared[idx]=true;nCleared++;}
+    if(idx===cur)passed=true; // only the line on screen can hand over to Next
+    updProg();
+  }
+  if(idx===cur){
+    document.getElementById('nxtbtn').style.display=ok?'inline-block':'none';
+    document.getElementById('speakbtn').style.display=ok?'none':'inline-block';
+  }
 }
 
 // One reused <audio> element. iOS only allows play() on audio first activated
@@ -4264,6 +4354,7 @@ function tryAgain(){
 }
 
 function moveTo(idx){
+  if(transcribing){setSt('⏳ Transcribing — one sec');return;}
   document.getElementById('cmp').classList.remove('show');
   stopAudio();
   const old=document.getElementById('rl-'+RL[cur].id);if(old){old.classList.remove('cur');}
@@ -4280,11 +4371,13 @@ function moveTo(idx){
 }
 
 function advance(){
+  if(transcribing){setSt('⏳ Transcribing — one sec');return;}
   if(cur<RL.length-1)moveTo(cur+1);
   else showDone();
 }
 
 function goForward(){
+  if(transcribing){setSt('⏳ Transcribing — one sec');return;}
   if(cur<RL.length-1)moveTo(cur+1);
   else showDone();
 }
@@ -4293,7 +4386,6 @@ function goBack(){
   if(cur>0)moveTo(cur-1);
 }
 
-function skipLine(){goForward();}
 
 function updNavBtns(){
   const back=document.querySelector('.nav-btn[onclick="goBack()"]');
@@ -4422,7 +4514,7 @@ function restart(){cleared.fill(false);cur=0;renderPretake();nCleared=0;passed=f
 // wires up as a handler — a credential-theft vector, since gemKey/oai/groqKey
 // all live in localStorage on this same origin. Not a contrived edge case —
 // an ordinary slugline like INT. THE "GREEN ROOM" - NIGHT is enough.
-function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 function show(id){flushSceneEdit();['step-key','step-upload','script-screen','work-screen','read-screen','reh-screen','done-screen'].forEach(s=>document.getElementById(s).style.display=s===id?'block':'none');}
 </script>
 <script>
@@ -4434,11 +4526,14 @@ if('serviceWorker' in navigator){
   let refreshing=false,pendingReload=false;
   function safeToReload(){
     if(typeof recording!=='undefined'&&recording)return false;
+    if(typeof transcribing!=='undefined'&&transcribing)return false;
     // Scene Work requests (including a background "Generate all scenes" run,
     // which keeps going after the modal is closed) must finish before a
     // reload — an auto-update used to be able to silently kill a multi-scene
     // run in progress, with whatever hadn't saved yet just gone.
     if(typeof _wkJobRunning!=='undefined'&&_wkJobRunning)return false;
+    if(typeof _uploadBusy!=='undefined'&&_uploadBusy)return false;
+    if(typeof _audioJob!=='undefined'&&_audioJob)return false;
     for(const id of ['script-screen','read-screen','reh-screen','done-screen','audio-modal','work-screen']){
       const el=document.getElementById(id);
       if(el&&(el.classList.contains('show')||el.style.display!=='none'&&el.style.display!==''))return false;

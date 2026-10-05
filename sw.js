@@ -1,6 +1,6 @@
 // OFFBOOK service worker — caches the app shell for offline launch.
 // Network-first so updates land immediately; cache is the offline fallback.
-const CACHE = 'offbook-v50';
+const CACHE = 'offbook-v51';
 const ASSETS = [
   './',
   './index.html',
@@ -41,7 +41,7 @@ self.addEventListener('fetch', e => {
   e.respondWith(
     fetch(req, isShell ? {cache:'no-store'} : {})
       .then(res => {
-        if (url.origin === location.origin) {
+        if (url.origin === location.origin && res.ok) {
           const copy = res.clone();
           caches.open(CACHE).then(c => c.put(req, copy));
         }
