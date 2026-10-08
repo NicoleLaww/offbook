@@ -75,6 +75,7 @@ const PRETAKE_PROMPT = extractPrompt('PRETAKE_PROMPT');
 const CRAFT_PROMPT = extractPrompt('CRAFT_PROMPT');
 const SCENEBREAK_PROMPT = extractPrompt('SCENEBREAK_PROMPT');
 const BREAKDOWN_READ_PROMPT = extractPrompt('BREAKDOWN_READ_PROMPT');
+const STORY_PROMPT = extractPrompt('STORY_PROMPT');
 
 const scope = new Function(`
   ${extractFn('norm')}
@@ -932,6 +933,22 @@ t('CRAFT_PROMPT: names the unhealthy "how" and answers it with the story, not a 
   /unhealthy how/.test(CRAFT_PROMPT) && /do the things on the page/.test(CRAFT_PROMPT), true);
 t('CRAFT_PROMPT: the character is the person who does these things, not a description to inhabit',
   /the person who DOES these things/.test(CRAFT_PROMPT), true);
+
+// --- STORY_PROMPT: the story-level pass over a whole sides packet. It runs
+// BEFORE any scene work, so a drift here mis-orients the entire packet.
+t('STORY_PROMPT: the controlling idea names the plot engine, not only the theme',
+  /PLOT ENGINE/.test(STORY_PROMPT) && /the concrete operational problem this episode turns on/.test(STORY_PROMPT), true);
+t('STORY_PROMPT: the plot engine is flagged as the most load-bearing read on the page',
+  /most load-bearing thing on this page/.test(STORY_PROMPT), true);
+t('STORY_PROMPT: the value-charge map is labelled by script scene number, so it reads in episode order',
+  /script scene number from the packet scene index/.test(STORY_PROMPT) && /"script scene 9 — /.test(STORY_PROMPT), true);
+t('STORY_PROMPT: stays at story altitude — per-beat work belongs to the scene tool',
+  /Stay at story altitude/.test(STORY_PROMPT), true);
+
+// --- COACH_PROMPT Q1: the register the buyer sits in. Genre/ceiling alone
+// misses it; acting too good for a broadcast network is a real failure mode.
+t('COACH_PROMPT: Q1 pins the buyer\'s register (broadcast vs cable vs streaming)',
+  /REGISTER the buyer sits in/.test(COACH_PROMPT) && /too good for it/.test(COACH_PROMPT), true);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
