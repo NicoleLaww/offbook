@@ -74,6 +74,7 @@ const COACH_PROMPT = extractPrompt('COACH_PROMPT');
 const PRETAKE_PROMPT = extractPrompt('PRETAKE_PROMPT');
 const CRAFT_PROMPT = extractPrompt('CRAFT_PROMPT');
 const SCENEBREAK_PROMPT = extractPrompt('SCENEBREAK_PROMPT');
+const BREAKDOWN_READ_PROMPT = extractPrompt('BREAKDOWN_READ_PROMPT');
 
 const scope = new Function(`
   ${extractFn('norm')}
@@ -125,6 +126,9 @@ const scope = new Function(`
   ${extractFn('joinRowItems')}
   ${extractFn('cleanPageText')}
   ${extractFn('isSlugline')}
+  ${extractFn('sceneNumFromHeading')}
+  ${extractFn('stripSceneNum')}
+  ${extractFn('scriptSceneFor')}
   ${extractFn('normHeading')}
   ${extractFn('filterHeadings')}
   ${extractFn('extractCompassOffer')}
@@ -143,9 +147,9 @@ const scope = new Function(`
   ${extractFn('setWork')}
   ${extractFn('wkChat')}
   ${extractFn('saveChat')}
-  return { COACH_ASK_SUFFIX, COACH_ASK_SUFFIX_OLD, COACH_TAKE_NUDGE, norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, recomputeScenes, setSL: v => SL = v, getSL: () => SL, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, looksLikeUnsplitScenes, parseSceneBreaks, parseCoachQuestions, buildCoachAnswerMessage, charKey, roleOptions, sideLabelFromFilename, commonNamePrefix, projectCharacters, projectGenre, projectNames, playingChars, projectDigest, pickCarriedProject, joinRowItems, cleanPageText, isSlugline, filterHeadings, extractCompassOffer, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache: v => _scriptsCache = v, setCurName: v => curName = v, setWkTab: v => _wkTab = v, getScriptsCache: () => _scriptsCache, setSessionWork: v => _sessionWork = v, setSceneFilter: v => _sceneFilter = v, setLogView: v => _logView = v };
+  return { COACH_ASK_SUFFIX, COACH_ASK_SUFFIX_OLD, COACH_TAKE_NUDGE, norm, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, recomputeScenes, setSL: v => SL = v, getSL: () => SL, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, looksLikeUnsplitScenes, parseSceneBreaks, parseCoachQuestions, buildCoachAnswerMessage, charKey, roleOptions, sideLabelFromFilename, commonNamePrefix, projectCharacters, projectGenre, projectNames, playingChars, projectDigest, pickCarriedProject, joinRowItems, cleanPageText, isSlugline, filterHeadings, sceneNumFromHeading, stripSceneNum, scriptSceneFor, extractCompassOffer, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache: v => _scriptsCache = v, setCurName: v => curName = v, setWkTab: v => _wkTab = v, getScriptsCache: () => _scriptsCache, setSessionWork: v => _sessionWork = v, setSceneFilter: v => _sceneFilter = v, setLogView: v => _logView = v };
 `)();
-const { COACH_ASK_SUFFIX, COACH_ASK_SUFFIX_OLD, COACH_TAKE_NUDGE, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, setSL, getSL, recomputeScenes, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, looksLikeUnsplitScenes, parseSceneBreaks, parseCoachQuestions, buildCoachAnswerMessage, charKey, roleOptions, sideLabelFromFilename, commonNamePrefix, projectCharacters, projectGenre, projectNames, playingChars, projectDigest, pickCarriedProject, joinRowItems, cleanPageText, isSlugline, filterHeadings, extractCompassOffer, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache, setCurName, setWkTab, getScriptsCache, setSessionWork, setSceneFilter, setLogView } = scope;
+const { COACH_ASK_SUFFIX, COACH_ASK_SUFFIX_OLD, COACH_TAKE_NUDGE, cleanChar, sceneFingerprint, findMergeCandidate, computeSavedUpdate, sceneTokens, bestFuzzySceneMatch, carryLineFlags, isOverloadMsg, isQuotaMsg, nextRetryDecision, FREE_RETRY_BACKOFF, setSL, getSL, recomputeScenes, checklistCount, genreCounts, pickCarriedGenre, cleanGemErr, parsePretakeReply, threadAfterBreakdownReset, wkViewState, looksLikeUnsplitScenes, parseSceneBreaks, parseCoachQuestions, buildCoachAnswerMessage, charKey, roleOptions, sideLabelFromFilename, commonNamePrefix, projectCharacters, projectGenre, projectNames, playingChars, projectDigest, pickCarriedProject, joinRowItems, cleanPageText, isSlugline, filterHeadings, sceneNumFromHeading, stripSceneNum, scriptSceneFor, extractCompassOffer, wkChat, saveChat, setWork, getScriptRoute, getWork, currentSceneLines, sceneText, logGroupKey, setScriptsCache, setCurName, setWkTab, getScriptsCache, setSessionWork, setSceneFilter, setLogView } = scope;
 
 let pass = 0, fail = 0;
 function t(desc, actual, expected) {
@@ -281,7 +285,7 @@ t('computeSavedUpdate: a brand-new script with no override defaults to paid (the
   computeSavedUpdate([], 'New.pdf', [dummyLine], undefined).updated[0].route, 'paid');
 t('computeSavedUpdate: a saved line\'s optional fields default to empty string / false, never undefined',
   computeSavedUpdate([], 'New.pdf', [{ char: 'X', text: 'hi' }], undefined).updated[0].lines[0],
-  { char: 'X', direction: undefined, text: 'hi', before: '', after: '', isMine: false, cut: false, sceneStart: false, sceneHeading: '', sceneLabel: '', carried: false, carriedFrom: '', carriedFuzzy: false });
+  { char: 'X', direction: undefined, text: 'hi', before: '', after: '', isMine: false, cut: false, sceneStart: false, sceneHeading: '', sceneLabel: '', scriptScene: '', carried: false, carriedFrom: '', carriedFuzzy: false });
 {
   // 500 unrelated existing scripts + saving a new one = 501 -> the oldest
   // (last in array order, since unshift always puts the current save first)
@@ -870,6 +874,64 @@ t('buildCoachAnswerMessage: only the questions she answered, in question order',
   buildCoachAnswerMessage(QS, { 3: 'to hook the leads', 1: 'The Housemaid' }), '1. GENRE / TONE — The Housemaid\n\n3. THE SCENE\'S JOB — to hook the leads');
 t('buildCoachAnswerMessage: blank/whitespace answers are skipped; nothing written is empty (so nothing is sent)',
   [buildCoachAnswerMessage(QS, { 1: '   ', 2: '' }), buildCoachAnswerMessage(QS, {}), buildCoachAnswerMessage([], undefined)], ['', '', '']);
+
+// --- scene number as POSITION: the number beside a slugline ("9 INT. ...") is
+// the first analytical read on any sides packet (scene 9 = just past the cold
+// open). recomputeScenes() renumbers scenes 1..N for the app's own use, so the
+// script's own number is kept separately and shown as a position cue — never
+// mistaken for the local scene index.
+t('sceneNumFromHeading: reads the number beside a slugline',
+  sceneNumFromHeading("9 INT. BLESSED SACRAMENT, NURSE'S HUB-MORNING"), '9');
+t('sceneNumFromHeading: keeps a lettered revision scene number intact',
+  sceneNumFromHeading('12A INT. HOUSE - DAY'), '12A');
+t('sceneNumFromHeading: a slugline with no number, or nothing at all, is empty — not a crash',
+  [sceneNumFromHeading('INT. KITCHEN - NIGHT'), sceneNumFromHeading(undefined)], ['', '']);
+
+t('stripSceneNum: drops the leading scene number from a stored heading',
+  stripSceneNum("9 INT. BLESSED SACRAMENT, NURSE'S HUB-MORNING"), "INT. BLESSED SACRAMENT, NURSE'S HUB-MORNING");
+t('stripSceneNum: handles a lettered number too', stripSceneNum('12A INT. HOUSE - DAY'), 'INT. HOUSE - DAY');
+t('stripSceneNum: a heading with no number is untouched, and nothing at all is empty — not a crash',
+  [stripSceneNum('INT. KITCHEN - NIGHT'), stripSceneNum(undefined)], ['INT. KITCHEN - NIGHT', '']);
+
+setSL([{ scene: 1, _sceneFirst: true, scriptScene: '9' }, { scene: 1, _sceneFirst: false, scriptScene: '' },
+       { scene: 2, _sceneFirst: true, scriptScene: '13' }]);
+t('scriptSceneFor: reports the script\'s own scene number as a position cue',
+  scriptSceneFor(2), 'script scene 13');
+t('scriptSceneFor: still reports it when it differs from the local scene index',
+  scriptSceneFor(1), 'script scene 9');
+
+setSL([{ scene: 1, _sceneFirst: true, scriptScene: '1' }, { scene: 2, _sceneFirst: true, scriptScene: '2' },
+       { scene: 3, _sceneFirst: true }]);
+t('scriptSceneFor: says nothing when the script\'s number just repeats the local one (no noise on a numbered script)',
+  [scriptSceneFor(1), scriptSceneFor(2)], ['', '']);
+t('scriptSceneFor: a scene with no captured number, or no such scene, is empty — not a crash',
+  [scriptSceneFor(3), scriptSceneFor(9)], ['', '']);
+
+// --- BREAKDOWN_READ_PROMPT: the read-the-breakdown pass. At best a breakdown
+// is written by a CD's assistant, increasingly by AI; ~80% is "act good"; and a
+// breakdown that contradicts itself is a project still in development, which is
+// information rather than noise. A prompt edit here silently changes all of that.
+t('BREAKDOWN_READ_PROMPT: separates the load-bearing 20% from the "act good" filler',
+  /THE 20%/.test(BREAKDOWN_READ_PROMPT) && /ACT GOOD/.test(BREAKDOWN_READ_PROMPT), true);
+t('BREAKDOWN_READ_PROMPT: reads a self-contradicting breakdown as a project still in development',
+  /CONTRADICTIONS/.test(BREAKDOWN_READ_PROMPT) && /still in development/.test(BREAKDOWN_READ_PROMPT), true);
+t('BREAKDOWN_READ_PROMPT: asks for the one line worth trusting, and refuses to read a non-breakdown',
+  /THE ONE LINE TO TRUST/.test(BREAKDOWN_READ_PROMPT) && /not a breakdown at all/.test(BREAKDOWN_READ_PROMPT), true);
+t('BREAKDOWN_READ_PROMPT: never invents facts that are not in what she pasted',
+  /Never invent facts that are not in what she gave you/.test(BREAKDOWN_READ_PROMPT), true);
+
+// --- the "assume it's not the first time" hack: the less context casting
+// gives you, the more you assume history — the sixth ask, not the first.
+t('COACH_PROMPT: Q6 assumes the repeated history instead of a first-time ask',
+  /it is the sixth/.test(COACH_PROMPT), true);
+t('CRAFT_PROMPT: COMING IN carries the same assume-history rule',
+  /play the sixth time, not the first/.test(CRAFT_PROMPT), true);
+
+// --- story-first rules: the unhealthy "how", and character-as-behavior.
+t('CRAFT_PROMPT: names the unhealthy "how" and answers it with the story, not a technique',
+  /unhealthy how/.test(CRAFT_PROMPT) && /do the things on the page/.test(CRAFT_PROMPT), true);
+t('CRAFT_PROMPT: the character is the person who does these things, not a description to inhabit',
+  /the person who DOES these things/.test(CRAFT_PROMPT), true);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
